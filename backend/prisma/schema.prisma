@@ -1,0 +1,171 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==========================================
+// 1. MASTER DATA (The Rules & Components)
+// ==========================================
+
+model Bahan {
+  id             Int     @id @default(autoincrement())
+  nama_bahan     String  @db.VarChar(255)
+  kuantitas_pack Int
+  harga_satuan   Decimal @db.Decimal(10, 2)
+
+  // Relations
+  bom_langkah  BomLangkah[]
+  stok_live    StokLiveWorkstation[]
+  log_andon    LogAndon[]
+  log_logistik LogLogistik[]
+}
+
+model Workstation {
+  id      String @id @db.VarChar(50)
+  nama_ws String @db.VarChar(255)
+  tipe    String @db.VarChar(50) // ASSEMBLY, INSPECTION, LOGISTICS
+
+  // Relations
+  skenario_workstation SkenarioWorkstation[]
+  langkah_kerja        SkenarioLangkahKerja[]
+  stok_live            StokLiveWorkstation[]
+  log_siklus           LogSiklusKanban[]
+  log_andon            LogAndon[]
+  log_logistik         LogLogistik[]
+}
+
+// ==========================================
+// 2. CONFIGURATION DATA (The Scenarios/Sets)
+// ==========================================
+
+model SkenarioGame {
+  id            Int     @id @default(autoincrement())
+  nama_skenario String  @db.VarChar(255)
+  deskripsi     String? @db.Text
+
+  // Relations
+  workstations  SkenarioWorkstation[]
+  langkah_kerja SkenarioLangkahKerja[]
+  sesi          SesiPraktikum[]
+}
+
+model SkenarioWorkstation {
+  id_skenario    Int
+  id_workstation String @db.VarChar(50)
+  wip_limit      Int    // If queue hits this number, previous WS must stop
+
+  skenario    SkenarioGame @relation(fields: [id_skenario], references: [id])
+  workstation Workstation  @relation(fields: [id_workstation], references: [id])
+
+  @@id([id_skenario, id_workstation])
+}
+
+model SkenarioLangkahKerja {
+  id                  Int    @id @default(autoincrement())
+  id_skenario         Int
+  id_workstation      String @db.VarChar(50)
+  urutan_langkah      Int
+  deskripsi_tugas     String @db.Text
+  standard_time_detik Int
+
+  skenario    SkenarioGame @relation(fields: [id_skenario], references: [id])
+  workstation Workstation  @relation(fields: [id_workstation], references: [id])
+  bom         BomLangkah[]
+}
+
+model BomLangkah {
+  id_langkah     Int
+  id_bahan       Int
+  qty_dibutuhkan Int
+
+  langkah SkenarioLangkahKerja @relation(fields: [id_langkah], references: [id])
+  bahan   Bahan                @relation(fields: [id_bahan], references: [id])
+
+  @@id([id_langkah, id_bahan])
+}
+
+// ==========================================
+// 3. THE LIVE GAME ENGINE (Session & State)
+// ==========================================
+
+model SesiPraktikum {
+  id            Int       @id @default(autoincrement())
+  id_skenario   Int
+  waktu_mulai   DateTime  @default(now()) @db.Timestamptz()
+  waktu_selesai DateTime? @db.Timestamptz()
+  status        String    @default("ACTIVE") @db.VarChar(50)
+
+  skenario     SkenarioGame          @relation(fields: [id_skenario], references: [id])
+  stok_live    StokLiveWorkstation[]
+  log_siklus   LogSiklusKanban[]
+  log_andon    LogAndon[]
+  log_logistik LogLogistik[]
+}
+
+model StokLiveWorkstation {
+  id_sesi                Int
+  id_workstation         String @db.VarChar(50)
+  id_bahan               Int
+  stok_sekarang          Int
+  safety_stock_threshold Int
+
+  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id])
+  workstation Workstation   @relation(fields: [id_workstation], references: [id])
+  bahan       Bahan         @relation(fields: [id_bahan], references: [id])
+
+  @@id([id_sesi, id_workstation, id_bahan])
+}
+
+// ==========================================
+// 4. THE METRICS & LOGS (For OEE & Reports)
+// ==========================================
+
+model LogSiklusKanban {
+  id             Int       @id @default(autoincrement())
+  id_sesi        Int
+  kode_produk    String    @db.VarChar(100)
+  id_workstation String    @db.VarChar(50)
+  waktu_mulai    DateTime  @db.Timestamptz()
+  waktu_selesai  DateTime? @db.Timestamptz()
+  status         String    @db.VarChar(50) // 'WIP', 'DONE', 'REWORK'
+
+  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id])
+  workstation Workstation   @relation(fields: [id_workstation], references: [id])
+}
+
+model LogAndon {
+  id               Int       @id @default(autoincrement())
+  id_sesi          Int
+  id_workstation   String    @db.VarChar(50)
+  jenis_gangguan   String    @db.VarChar(100) // 'DEFECT_MATERIAL', 'MACHINE_DOWN'
+  waktu_lapor      DateTime  @db.Timestamptz()
+  waktu_selesai    DateTime? @db.Timestamptz()
+  id_bahan_dibuang Int?
+  qty_dibuang      Int?
+
+  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id])
+  workstation Workstation   @relation(fields: [id_workstation], references: [id])
+  bahan       Bahan?        @relation(fields: [id_bahan_dibuang], references: [id])
+}
+
+model LogLogistik {
+  id             Int       @id @default(autoincrement())
+  id_sesi        Int
+  id_workstation String    @db.VarChar(50)
+  id_bahan       Int
+  qty_diminta    Int
+  waktu_diminta  DateTime  @db.Timestamptz()
+  waktu_dipenuhi DateTime? @db.Timestamptz()
+
+  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id])
+  workstation Workstation   @relation(fields: [id_workstation], references: [id])
+  bahan       Bahan         @relation(fields: [id_bahan], references: [id])
+}

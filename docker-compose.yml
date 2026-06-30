@@ -1,0 +1,80 @@
+name: ie-unud-kaizen
+
+services:
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: kaizen-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      # Binds only to the host machine for local access, blocking external network access
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - kaizen-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: kaizen-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    networks:
+      - kaizen-network
+
+  # ----------------------------------------------------
+  # PRODUCTION SERVICES (Uncomment when deploying to Central PC)
+  # ----------------------------------------------------
+  
+  # backend:
+  #   container_name: kaizen-backend
+  #   build: 
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3001:3001"
+  #   environment:
+  #     - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres-db:5432/${DB_NAME}?schema=public
+  #   depends_on:
+  #     postgres-db:
+  #       condition: service_healthy
+  #   networks:
+  #     - kaizen-network
+
+  # frontend:
+  #   container_name: kaizen-frontend
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+  #   depends_on:
+  #     - backend
+  #   networks:
+  #     - kaizen-network
+
+volumes:
+  postgres_data:
+
+networks:
+  kaizen-network:
+    driver: bridge
