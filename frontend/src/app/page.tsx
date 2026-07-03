@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import { LayersIcon, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { WorkstationControls } from '@/components/workstation-controls';
 
 export default function Home() {
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
@@ -52,11 +53,7 @@ export default function Home() {
     checkActiveSession();
   }, [apiUrl]);
 
-  // 2. Fetch the Kanban data if a session is active
-  useEffect(() => {
-    if (!activeSessionId) return;
-
-    async function fetchBoardData() {
+  async function fetchBoardData() {
       try {
         const res = await fetch(`${apiUrl}/sessions/${activeSessionId}/kanban-board`, {
           cache: 'no-store',
@@ -70,9 +67,19 @@ export default function Home() {
       }
     }
 
+  // 2. Fetch the Kanban data if a session is active
+  useEffect(() => {
+    if (!activeSessionId) return;
+
     fetchBoardData();
     const interval = setInterval(fetchBoardData, 3000);
 
+    return () => clearInterval(interval);
+  }, [activeSessionId, apiUrl]);
+
+  useEffect(() => {
+    fetchBoardData(); // Fetch immediately
+    const interval = setInterval(fetchBoardData, 3000); // Poll every 3 seconds
     return () => clearInterval(interval);
   }, [activeSessionId, apiUrl]);
 
@@ -173,7 +180,27 @@ export default function Home() {
       </Frame>
 
       {/* Ordering Section */}
-      <OrderingPanel sessionId={activeSessionId} className="col-span-1" />
+      <div className="col-span-1 flex h-full flex-col gap-4 min-h-0">
+
+        {/* Ordering Panel (Top Half) */}
+        <OrderingPanel 
+          sessionId={activeSessionId} 
+          className="flex-1" 
+          onOrderComplete={fetchBoardData} // Instantly refresh kanban when ordered!
+        />
+
+        {/* Workstation Simulator (Bottom Half) */}
+        {boardData && boardData.workstations && (
+          <WorkstationControls 
+            sessionId={activeSessionId}
+            workstations={boardData.workstations}
+            className="flex-1"
+            onActionComplete={fetchBoardData} // Instantly refresh kanban when toggled!
+          />
+        )}
+
+      </div>
+      
     </div>
   );
 }

@@ -34,11 +34,12 @@ model Produk {
   nama_produk String  @db.VarChar(255)
 
   // Relations
-  langkah_kerja     SkenarioLangkahKerja[]
-  target_produksi   TargetProduksi[]
-  log_siklus        LogSiklusKanban[]
-  log_ng            LogProdukNG[]
-  antrian_heijunka  AntrianHeijunka[]
+  langkah_kerja       SkenarioLangkahKerja[]
+  target_produksi     TargetProduksi[]
+  log_siklus          LogSiklusKanban[]
+  log_ng              LogProdukNG[]
+  antrian_heijunka    AntrianHeijunka[]
+  target_safety_stock SkenarioWorkstationProduk[]
 }
 
 model Workstation {
@@ -47,13 +48,14 @@ model Workstation {
   tipe    String @db.VarChar(50) // ASSEMBLY, INSPECTION, LOGISTICS
 
   // Relations
-  skenario_workstation SkenarioWorkstation[]
-  langkah_kerja        SkenarioLangkahKerja[]
-  stok_live            StokLiveWorkstation[]
-  log_siklus           LogSiklusKanban[]
-  log_andon            LogAndon[]
-  log_logistik         LogLogistik[]
-  log_ng               LogProdukNG[]
+  skenario_workstation  SkenarioWorkstation[]
+  langkah_kerja         SkenarioLangkahKerja[]
+  stok_live             StokLiveWorkstation[]
+  log_siklus            LogSiklusKanban[]
+  log_andon             LogAndon[]
+  log_logistik          LogLogistik[]
+  log_ng                LogProdukNG[]
+  target_safety_stock   SkenarioWorkstationProduk[]
 }
 
 // ==========================================
@@ -66,20 +68,34 @@ model SkenarioGame {
   deskripsi     String? @db.Text
 
   // Relations
-  workstations  SkenarioWorkstation[]
-  langkah_kerja SkenarioLangkahKerja[]
-  sesi          SesiPraktikum[]
+  workstations        SkenarioWorkstation[]
+  langkah_kerja       SkenarioLangkahKerja[]
+  sesi                SesiPraktikum[]
+  target_safety_stock SkenarioWorkstationProduk[]
 }
 
 model SkenarioWorkstation {
   id_skenario    Int
-  id_workstation String @db.VarChar(50)
-  wip_limit      Int    // If queue hits this number, previous WS must stop
+  id_workstation String  @db.VarChar(50)
+  is_pacemaker   Boolean @default(false) // 👈 ADD THIS 
 
-  skenario    SkenarioGame @relation(fields: [id_skenario], references: [id])
+  skenario    SkenarioGame @relation(fields: [id_skenario], references: [id], onDelete: Cascade)
   workstation Workstation  @relation(fields: [id_workstation], references: [id])
 
   @@id([id_skenario, id_workstation])
+}
+
+model SkenarioWorkstationProduk {
+  id_skenario    Int
+  id_workstation String @db.VarChar(50)
+  id_produk      Int
+  safety_stock   Int    // The target limit for this specific product
+
+  skenario    SkenarioGame @relation(fields: [id_skenario], references: [id], onDelete: Cascade)
+  workstation Workstation  @relation(fields: [id_workstation], references: [id])
+  produk      Produk       @relation(fields: [id_produk], references: [id])
+
+  @@id([id_skenario, id_workstation, id_produk])
 }
 
 model SkenarioLangkahKerja {
@@ -173,17 +189,21 @@ model StokLiveWorkstation {
 model LogSiklusKanban {
   id             Int       @id @default(autoincrement())
   id_sesi        Int
-  id_produk      Int       // Links physical item to Product Master
-  kode_produk    String    @db.VarChar(100) // The physical tag (e.g., CAR-A-001)
+  id_produk      Int       
+  kode_produk    String    @db.VarChar(100)
   id_workstation String    @db.VarChar(50)
   waktu_mulai    DateTime  @db.Timestamptz()
   waktu_selesai  DateTime? @db.Timestamptz()
-  status         String    @db.VarChar(50) // 'QUEUE', 'WIP', 'DONE', 'REWORK', 'NG'
+  status         String    @db.VarChar(50)
+  
+  langkah_sekarang Int     @default(1)
 
   sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id], onDelete: Cascade)
   produk      Produk        @relation(fields: [id_produk], references: [id])
   workstation Workstation   @relation(fields: [id_workstation], references: [id])
 }
+
+
 
 model LogProdukNG {
   id             Int       @id @default(autoincrement())

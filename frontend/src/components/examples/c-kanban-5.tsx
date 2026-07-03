@@ -88,6 +88,28 @@ function OverflowChip({ items }: { items: { kode_produk: string }[] }) {
   )
 }
 
+// ---------- Queue card (awaiting pull from previous workstation) ----------
+
+function QueueCard({ item }: { item: ProductionItem }) {
+  return (
+    <Frame
+      variant="ghost"
+      spacing="sm"
+      className="border-muted-foreground/30 bg-muted/10 min-w-0 flex-1 border-2 border-dashed p-0 opacity-80"
+    >
+      <FramePanel className="flex h-full flex-col items-center justify-center gap-1 p-2 text-center">
+        <AlertTriangleIcon className="text-muted-foreground/50 size-4" />
+        <span className="text-muted-foreground truncate text-xs font-semibold">
+          {item.kode_produk}
+        </span>
+        <Badge variant="outline" size="sm" className="bg-background">
+          Menunggu Tarikan
+        </Badge>
+      </FramePanel>
+    </Frame>
+  )
+}
+
 // ---------- WIP card ----------
 
 function WipCard({ item, now }: { item: ProductionItem; now: number }) {
@@ -194,7 +216,7 @@ export function HeijunkaRow({ queue }: { queue: HeijunkaQueueItem[] }) {
 
 // ---------- Row (one per workstation) ----------
 
-const MAX_WIP_VISIBLE = 2
+const MAX_ACTIVE_VISIBLE = 2
 const MAX_STOCK_VISIBLE = 3
 
 function WorkstationRow({
@@ -207,13 +229,17 @@ function WorkstationRow({
   now: number
 }) {
   const wipItems = items.filter((i) => i.status === "WIP")
+  const queueItems = items.filter((i) => i.status === "QUEUE")
   const safetyStockItems = items.filter((i) => i.status === "DONE")
   const ngCount = items.filter((i) => i.status === "NG").length
   const reworkCount = items.filter((i) => i.status === "REWORK").length
   const isIdle = wipItems.length === 0
 
-  const visibleWip = wipItems.slice(0, MAX_WIP_VISIBLE)
-  const hiddenWip = wipItems.slice(MAX_WIP_VISIBLE)
+  // WIP shown first (live/time-critical), then queue cards, capped so the row
+  // never needs to scroll — anything past the cap collapses into a "+N" chip.
+  const activeItems: ProductionItem[] = [...wipItems, ...queueItems]
+  const visibleActive = activeItems.slice(0, MAX_ACTIVE_VISIBLE)
+  const hiddenActive = activeItems.slice(MAX_ACTIVE_VISIBLE)
 
   const visibleStock = safetyStockItems.slice(0, MAX_STOCK_VISIBLE)
   const hiddenStock = safetyStockItems.slice(MAX_STOCK_VISIBLE)
@@ -239,18 +265,22 @@ function WorkstationRow({
       </FrameHeader>
 
       <FramePanel className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-        {/* In-progress area — grows to fill available row height */}
+        {/* In-progress + awaiting-pull area — grows to fill available row height */}
         <div className="flex min-h-0 flex-1 gap-2">
-          {wipItems.length === 0 ? (
+          {activeItems.length === 0 ? (
             <div className="border-border/60 text-muted-foreground flex h-full w-full items-center justify-center rounded-md border border-dashed text-xs">
               No active work
             </div>
           ) : (
             <>
-              {visibleWip.map((item) => (
-                <WipCard key={item.id} item={item} now={now} />
-              ))}
-              {hiddenWip.length > 0 && <OverflowChip items={hiddenWip} />}
+              {visibleActive.map((item) =>
+                item.status === "QUEUE" ? (
+                  <QueueCard key={item.id} item={item} />
+                ) : (
+                  <WipCard key={item.id} item={item} now={now} />
+                )
+              )}
+              {hiddenActive.length > 0 && <OverflowChip items={hiddenActive} />}
             </>
           )}
         </div>

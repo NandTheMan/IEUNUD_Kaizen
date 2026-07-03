@@ -39,4 +39,12 @@ export class SessionsController {
     ) {
         return this.sessionsService.submitOrder(id, submitOrderDto.items);
     }
+
+    @Post(':id/workstations/:wsId/toggle')
+    async toggleWorkstation(
+        @Param('id', ParseIntPipe) sessionId: number,
+        @Param('wsId') wsId: string
+    ) {
+        return this.sessionsService.toggleWorkstation(sessionId, wsId);
+    }
 }
