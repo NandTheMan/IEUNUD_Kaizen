@@ -28,6 +28,19 @@ model Bahan {
   log_logistik LogLogistik[]
 }
 
+model Produk {
+  id          Int     @id @default(autoincrement())
+  kode_produk String  @unique @db.VarChar(50)
+  nama_produk String  @db.VarChar(255)
+
+  // Relations
+  langkah_kerja     SkenarioLangkahKerja[]
+  target_produksi   TargetProduksi[]
+  log_siklus        LogSiklusKanban[]
+  log_ng            LogProdukNG[]
+  antrian_heijunka  AntrianHeijunka[]
+}
+
 model Workstation {
   id      String @id @db.VarChar(50)
   nama_ws String @db.VarChar(255)
@@ -40,6 +53,7 @@ model Workstation {
   log_siklus           LogSiklusKanban[]
   log_andon            LogAndon[]
   log_logistik         LogLogistik[]
+  log_ng               LogProdukNG[]
 }
 
 // ==========================================
@@ -71,12 +85,14 @@ model SkenarioWorkstation {
 model SkenarioLangkahKerja {
   id                  Int    @id @default(autoincrement())
   id_skenario         Int
+  id_produk           Int    // Step belongs to a specific product
   id_workstation      String @db.VarChar(50)
   urutan_langkah      Int
   deskripsi_tugas     String @db.Text
   standard_time_detik Int
 
   skenario    SkenarioGame @relation(fields: [id_skenario], references: [id])
+  produk      Produk       @relation(fields: [id_produk], references: [id])
   workstation Workstation  @relation(fields: [id_workstation], references: [id])
   bom         BomLangkah[]
 }
@@ -103,11 +119,37 @@ model SesiPraktikum {
   waktu_selesai DateTime? @db.Timestamptz()
   status        String    @default("ACTIVE") @db.VarChar(50)
 
-  skenario     SkenarioGame          @relation(fields: [id_skenario], references: [id])
-  stok_live    StokLiveWorkstation[]
-  log_siklus   LogSiklusKanban[]
-  log_andon    LogAndon[]
-  log_logistik LogLogistik[]
+  skenario          SkenarioGame          @relation(fields: [id_skenario], references: [id])
+  target_produksi   TargetProduksi[]
+  stok_live         StokLiveWorkstation[]
+  log_siklus        LogSiklusKanban[]
+  log_andon         LogAndon[]
+  log_logistik      LogLogistik[]
+  log_ng            LogProdukNG[]
+  antrian_heijunka  AntrianHeijunka[]
+}
+
+model TargetProduksi {
+  id_sesi     Int
+  id_produk   Int
+  target_qty  Int
+
+  sesi   SesiPraktikum @relation(fields: [id_sesi], references: [id], onDelete: Cascade)
+  produk Produk        @relation(fields: [id_produk], references: [id])
+
+  @@id([id_sesi, id_produk])
+}
+
+model AntrianHeijunka {
+  id          Int    @id @default(autoincrement())
+  id_sesi     Int
+  id_produk   Int
+  kode_produk String @db.VarChar(100) // e.g., CAR-A-005
+  urutan      Int    // The sequence number (1, 2, 3...)
+  status      String @default("QUEUED") @db.VarChar(50) // 'QUEUED', 'RELEASED'
+
+  sesi   SesiPraktikum @relation(fields: [id_sesi], references: [id], onDelete: Cascade)
+  produk Produk        @relation(fields: [id_produk], references: [id])
 }
 
 model StokLiveWorkstation {
@@ -117,7 +159,7 @@ model StokLiveWorkstation {
   stok_sekarang          Int
   safety_stock_threshold Int
 
-  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id])
+  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id], onDelete: Cascade)
   workstation Workstation   @relation(fields: [id_workstation], references: [id])
   bahan       Bahan         @relation(fields: [id_bahan], references: [id])
 
@@ -131,13 +173,29 @@ model StokLiveWorkstation {
 model LogSiklusKanban {
   id             Int       @id @default(autoincrement())
   id_sesi        Int
-  kode_produk    String    @db.VarChar(100)
+  id_produk      Int       // Links physical item to Product Master
+  kode_produk    String    @db.VarChar(100) // The physical tag (e.g., CAR-A-001)
   id_workstation String    @db.VarChar(50)
   waktu_mulai    DateTime  @db.Timestamptz()
   waktu_selesai  DateTime? @db.Timestamptz()
-  status         String    @db.VarChar(50) // 'WIP', 'DONE', 'REWORK'
+  status         String    @db.VarChar(50) // 'QUEUE', 'WIP', 'DONE', 'REWORK', 'NG'
 
-  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id])
+  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id], onDelete: Cascade)
+  produk      Produk        @relation(fields: [id_produk], references: [id])
+  workstation Workstation   @relation(fields: [id_workstation], references: [id])
+}
+
+model LogProdukNG {
+  id             Int       @id @default(autoincrement())
+  id_sesi        Int
+  id_produk      Int       
+  kode_produk    String    @db.VarChar(100) 
+  id_workstation String    @db.VarChar(50)
+  alasan_ng      String    @db.Text
+  waktu_kejadian DateTime  @default(now()) @db.Timestamptz()
+
+  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id], onDelete: Cascade)
+  produk      Produk        @relation(fields: [id_produk], references: [id])
   workstation Workstation   @relation(fields: [id_workstation], references: [id])
 }
 
@@ -151,7 +209,7 @@ model LogAndon {
   id_bahan_dibuang Int?
   qty_dibuang      Int?
 
-  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id])
+  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id], onDelete: Cascade)
   workstation Workstation   @relation(fields: [id_workstation], references: [id])
   bahan       Bahan?        @relation(fields: [id_bahan_dibuang], references: [id])
 }
@@ -165,7 +223,7 @@ model LogLogistik {
   waktu_diminta  DateTime  @db.Timestamptz()
   waktu_dipenuhi DateTime? @db.Timestamptz()
 
-  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id])
+  sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id], onDelete: Cascade)
   workstation Workstation   @relation(fields: [id_workstation], references: [id])
   bahan       Bahan         @relation(fields: [id_bahan], references: [id])
 }

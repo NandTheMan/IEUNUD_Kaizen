@@ -22,15 +22,12 @@ services:
       timeout: 5s
       retries: 5
 
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: kaizen-pgadmin
+  adminer:
+    image: adminer:latest
+    container_name: kaizen-adminer
     restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
     ports:
-      - "5050:80"
+      - "5050:8080"
     depends_on:
       postgres-db:
         condition: service_healthy

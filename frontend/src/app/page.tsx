@@ -1,85 +1,179 @@
-import Image from "next/image";
+'use client';
 
-async function getBackendData() {
+import { HeijunkaQueueList, ProductionKanban } from '@/components/examples/c-kanban-5';
+import { OrderingPanel } from '@/components/ordering-panel';
+import { Badge } from '@/components/reui/badge';
+import {
+  Frame,
+  FrameDescription,
+  FrameHeader,
+  FramePanel,
+  FrameTitle,
+} from '@/components/reui/frame';
+import { SessionInitializer } from '@/components/session-initializer';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { LayersIcon, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+
+export default function Home() {
+  const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
+  const [boardData, setBoardData] = useState<any>(null); // Store real backend data here
+  const [isLoading, setIsLoading] = useState(true);
+  const [isStopping, setIsStopping] = useState(false);
+
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-  
-  try {
-    // Next.js handles async fetches natively on the server
-    const res = await fetch(apiUrl, { cache: 'no-store' }); 
-    if (!res.ok) throw new Error('Failed to fetch data');
-    
-    return res.text(); // NestJS default endpoint returns plain text ("Hello World!")
-  } catch (error) {
-    console.error("Connection Error:", error);
-    return "Error connecting to backend";
-  }
-}
 
-export default async function Home() {
-  const data = await getBackendData();
+  // 1. Check for active session on load
+  useEffect(() => {
+    async function checkActiveSession() {
+      try {
+        const res = await fetch(`${apiUrl}/sessions/active`, { cache: 'no-store' });
+        if (res.ok) {
+          const session = await res.json();
+          if (session && session.id) {
+            setActiveSessionId(session.id);
+            // setActiveSessionId(1);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check for active session:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    checkActiveSession();
+  }, [apiUrl]);
+
+  // 2. Fetch the Kanban data if a session is active
+  useEffect(() => {
+    if (!activeSessionId) return;
+
+    async function fetchBoardData() {
+      try {
+        const res = await fetch(`${apiUrl}/sessions/${activeSessionId}/kanban-board`, {
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setBoardData(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch kanban board state:', error);
+      }
+    }
+
+    fetchBoardData();
+    const interval = setInterval(fetchBoardData, 3000);
+
+    return () => clearInterval(interval);
+  }, [activeSessionId, apiUrl]);
+
+  const handleStopSession = async () => {
+    setIsStopping(true);
+    try {
+      const res = await fetch(`${apiUrl}/sessions/stop`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to stop the session.');
+      setActiveSessionId(null);
+      setBoardData(null);
+    } catch (error) {
+      console.error('Failed to stop session:', error);
+    } finally {
+      setIsStopping(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center gap-2 text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <span>Loading...</span>
+      </div>
+    );
+  }
+
+  if (!activeSessionId) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-muted/50">
+        <SessionInitializer onSessionStart={setActiveSessionId} />
+      </div>
+    );
+  }
+
+  const queueCount = boardData?.heijunkaQueue?.length ?? 0;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            {data}
-          </h1>
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+    <div className="grid flex-1 grid-cols-3 grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4">
+      {/* Kanban Section */}
+      <Frame stacked className="col-span-2 flex h-full min-h-0 flex-col">
+        <FrameHeader className="flex shrink-0 flex-row items-center justify-between">
+          <div>
+            <FrameTitle className="font-mono text-3xl">Halo, PPIC!</FrameTitle>
+            <FrameDescription className="text-xl font-light">
+              Berikut Jadwal Kita Hari Ini!
+            </FrameDescription>
+          </div>
+          <div className="flex items-center gap-4">
+            {boardData && (
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <LayersIcon className="h-4 w-4" />
+                    Lihat Antrian
+                    {queueCount > 0 && (
+                      <Badge variant="secondary" size="sm">
+                        {queueCount}
+                      </Badge>
+                    )}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <LayersIcon className="text-muted-foreground h-5 w-5" />
+                      Heijunka Queue
+                    </DialogTitle>
+                    <DialogDescription>
+                      Urutan rilis produksi yang telah diratakan (leveled)
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="max-h-[60vh] overflow-y-auto pr-1">
+                    <HeijunkaQueueList queue={boardData.heijunkaQueue ?? []} />
+                  </div>
+                </DialogContent>
+              </Dialog>
+            )}
+            <Badge variant="outline">Sesi Aktif: {activeSessionId}</Badge>
+            <Button variant="destructive" onClick={handleStopSession} disabled={isStopping}>
+              {isStopping && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {isStopping ? 'Menghentikan...' : 'Hentikan Sesi'}
+            </Button>
+          </div>
+        </FrameHeader>
+        <FramePanel className="min-h-0 flex-1 overflow-hidden">
+          {boardData ? (
+            <ProductionKanban
+              workstations={boardData.workstations}
+              items={boardData.items}
+              className="h-full"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <Loader2 className="text-muted-foreground h-8 w-8 animate-spin" />
+            </div>
+          )}
+        </FramePanel>
+      </Frame>
+
+      {/* Ordering Section */}
+      <OrderingPanel sessionId={activeSessionId} className="col-span-1" />
     </div>
   );
 }

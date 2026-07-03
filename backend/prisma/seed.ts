@@ -1,23 +1,26 @@
 import { PrismaClient } from '@prisma/client';
-import { PrismaPg } from "@prisma/adapter-pg"
+import { PrismaPg } from '@prisma/adapter-pg';
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL })
 })
 
 async function main() {
-  console.log('Seeding database with TPS Lab data...');
+  console.log('Seeding database with TPS Lab data (including Products & NG Data)...');
 
-  // 1. Clear existing data to prevent duplicates if you run this multiple times
+  // 1. Clear existing data in reverse relation order
   await prisma.logLogistik.deleteMany();
   await prisma.logAndon.deleteMany();
+  await prisma.logProdukNG.deleteMany();
   await prisma.logSiklusKanban.deleteMany();
   await prisma.stokLiveWorkstation.deleteMany();
+  await prisma.targetProduksi.deleteMany();
   await prisma.sesiPraktikum.deleteMany();
   await prisma.bomLangkah.deleteMany();
   await prisma.skenarioLangkahKerja.deleteMany();
   await prisma.skenarioWorkstation.deleteMany();
   await prisma.skenarioGame.deleteMany();
+  await prisma.produk.deleteMany();
   await prisma.workstation.deleteMany();
   await prisma.bahan.deleteMany();
 
@@ -26,9 +29,14 @@ async function main() {
   const b_axle = await prisma.bahan.create({ data: { nama_bahan: 'Axle Depan/Belakang', kuantitas_pack: 4, harga_satuan: 150000 } });
   const b_roda = await prisma.bahan.create({ data: { nama_bahan: 'Roda Karet', kuantitas_pack: 4, harga_satuan: 75000 } });
   const b_baut = await prisma.bahan.create({ data: { nama_bahan: 'Baut 10mm', kuantitas_pack: 50, harga_satuan: 2000 } });
-  const b_body = await prisma.bahan.create({ data: { nama_bahan: 'Body Atas', kuantitas_pack: 1, harga_satuan: 300000 } });
+  const b_body_a = await prisma.bahan.create({ data: { nama_bahan: 'Body Tipe A (Standard)', kuantitas_pack: 1, harga_satuan: 300000 } });
+  const b_body_b = await prisma.bahan.create({ data: { nama_bahan: 'Body Tipe B (Premium)', kuantitas_pack: 1, harga_satuan: 450000 } });
 
-  // 3. MASTER DATA - Workstations
+  // 3. MASTER DATA - Produk (Heijunka Setup)
+  const prodA = await prisma.produk.create({ data: { kode_produk: 'TYPE-A', nama_produk: 'Mobil Standard' }});
+  const prodB = await prisma.produk.create({ data: { kode_produk: 'TYPE-B', nama_produk: 'Mobil Premium' }});
+
+  // 4. MASTER DATA - Workstations
   await prisma.workstation.createMany({
     data: [
       { id: 'WS1', nama_ws: 'Perakitan Chassis & Axle', tipe: 'ASSEMBLY' },
@@ -39,7 +47,7 @@ async function main() {
     ],
   });
 
-  // 4. SCENARIO SETUP - 4 Workstation Baseline
+  // 5. SCENARIO SETUP - 4 Workstation Baseline
   const scenario = await prisma.skenarioGame.create({
     data: {
       nama_skenario: 'Baseline TPS - 4 Workstations',
@@ -56,29 +64,20 @@ async function main() {
     ],
   });
 
-  // 5. STEPS & BOM (Bill of Materials)
-  const step1 = await prisma.skenarioLangkahKerja.create({
-    data: { id_skenario: scenario.id, id_workstation: 'WS1', urutan_langkah: 1, deskripsi_tugas: 'Rakit 2 Axle ke Chassis Utama', standard_time_detik: 45 },
+  // 6. STEPS & BOM (Bill of Materials linked to Products)
+  // Step for Product A
+  const step1A = await prisma.skenarioLangkahKerja.create({
+    data: { id_skenario: scenario.id, id_produk: prodA.id, id_workstation: 'WS3', urutan_langkah: 1, deskripsi_tugas: 'Pasang Body Standard', standard_time_detik: 30 },
   });
-  await prisma.bomLangkah.createMany({
-    data: [
-      { id_langkah: step1.id, id_bahan: b_chassis.id, qty_dibutuhkan: 1 },
-      { id_langkah: step1.id, id_bahan: b_axle.id, qty_dibutuhkan: 2 },
-      { id_langkah: step1.id, id_bahan: b_baut.id, qty_dibutuhkan: 8 },
-    ],
-  });
+  await prisma.bomLangkah.create({ data: { id_langkah: step1A.id, id_bahan: b_body_a.id, qty_dibutuhkan: 1 } });
 
-  const step2 = await prisma.skenarioLangkahKerja.create({
-    data: { id_skenario: scenario.id, id_workstation: 'WS2', urutan_langkah: 1, deskripsi_tugas: 'Pasang 4 Roda ke Axle', standard_time_detik: 45 },
+  // Step for Product B (Takes longer)
+  const step1B = await prisma.skenarioLangkahKerja.create({
+    data: { id_skenario: scenario.id, id_produk: prodB.id, id_workstation: 'WS3', urutan_langkah: 1, deskripsi_tugas: 'Pasang Body Premium (Perlu Kalibrasi)', standard_time_detik: 50 },
   });
-  await prisma.bomLangkah.createMany({
-    data: [
-      { id_langkah: step2.id, id_bahan: b_roda.id, qty_dibutuhkan: 4 },
-      { id_langkah: step2.id, id_bahan: b_baut.id, qty_dibutuhkan: 16 },
-    ],
-  });
+  await prisma.bomLangkah.create({ data: { id_langkah: step1B.id, id_bahan: b_body_b.id, qty_dibutuhkan: 1 } });
 
-  // 6. LIVE SESSION DATA (Creating a completed game session)
+  // 7. LIVE SESSION DATA
   const pastSession = await prisma.sesiPraktikum.create({
     data: {
       id_skenario: scenario.id,
@@ -88,63 +87,59 @@ async function main() {
     },
   });
 
-  // Insert Mock Live Stock for that session
-  await prisma.stokLiveWorkstation.createMany({
+  // PPIC Target
+  await prisma.targetProduksi.createMany({
     data: [
-      { id_sesi: pastSession.id, id_workstation: 'WS1', id_bahan: b_chassis.id, stok_sekarang: 5, safety_stock_threshold: 2 },
-      { id_sesi: pastSession.id, id_workstation: 'WS2', id_bahan: b_roda.id, stok_sekarang: 12, safety_stock_threshold: 4 },
+      { id_sesi: pastSession.id, id_produk: prodA.id, target_qty: 10 },
+      { id_sesi: pastSession.id, id_produk: prodB.id, target_qty: 5 },
     ]
   });
 
-  // 7. SIMULATE OEE DATA (Lots of logs for your charts)
+  // 8. SIMULATE OEE & HEIJUNKA DATA
   const baseTime = pastSession.waktu_mulai.getTime();
   
-  // Create Cycle Times (Performance Metric)
   for (let i = 1; i <= 15; i++) {
-    const isRework = i === 4 || i === 9; // Simulate a few reworks
+    const isPremium = i % 3 === 0; // Every 3rd car is Premium (Type B)
+    const activeProdId = isPremium ? prodB.id : prodA.id;
+    const isNg = i === 7; // Car #7 will be a complete failure (NG)
+    
     await prisma.logSiklusKanban.create({
       data: {
         id_sesi: pastSession.id,
-        kode_produk: `CAR-${String(i).padStart(3, '0')}`,
+        id_produk: activeProdId,
+        kode_produk: `CAR-${isPremium ? 'B' : 'A'}-${String(i).padStart(3, '0')}`,
         id_workstation: 'WS1',
-        waktu_mulai: new Date(baseTime + (i * 1000 * 100)), // Slowed down WS1 (bottleneck)
-        waktu_selesai: new Date(baseTime + (i * 1000 * 100) + 138000), // 138 seconds as per proposal!
-        status: isRework ? 'REWORK' : 'DONE',
+        waktu_mulai: new Date(baseTime + (i * 1000 * 100)),
+        waktu_selesai: new Date(baseTime + (i * 1000 * 100) + 138000), 
+        status: isNg ? 'NG' : 'DONE',
       },
     });
+
+    // If it's NG, log it to the new NG table!
+    if (isNg) {
+      await prisma.logProdukNG.create({
+        data: {
+          id_sesi: pastSession.id,
+          id_produk: activeProdId,
+          kode_produk: `CAR-${isPremium ? 'B' : 'A'}-${String(i).padStart(3, '0')}`,
+          id_workstation: 'WS3', // Let's say WS3 broke the body completely
+          alasan_ng: 'Body retak saat proses perakitan, produk harus di-scrap.',
+          waktu_kejadian: new Date(baseTime + (i * 1000 * 100) + 120000)
+        }
+      });
+    }
   }
 
-  // Create Downtime/Andon events (Availability & Quality Metrics)
-  await prisma.logAndon.createMany({
-    data: [
-      {
-        id_sesi: pastSession.id,
-        id_workstation: 'WS1',
-        jenis_gangguan: 'DEFECT_MATERIAL',
-        waktu_lapor: new Date(baseTime + 1000 * 60 * 15),
-        waktu_selesai: new Date(baseTime + 1000 * 60 * 18), // 3 minutes downtime
-        id_bahan_dibuang: b_chassis.id,
-        qty_dibuang: 1, // Defect wasted 1 chassis
-      },
-      {
-        id_sesi: pastSession.id,
-        id_workstation: 'WS3',
-        jenis_gangguan: 'MACHINE_DOWN',
-        waktu_lapor: new Date(baseTime + 1000 * 60 * 45),
-        waktu_selesai: new Date(baseTime + 1000 * 60 * 55), // 10 minutes downtime
-      }
-    ]
-  });
-
-  // Create Logistics Logs
-  await prisma.logLogistik.create({
+  // Create Downtime/Andon events
+  await prisma.logAndon.create({
     data: {
       id_sesi: pastSession.id,
       id_workstation: 'WS1',
-      id_bahan: b_chassis.id,
-      qty_diminta: 2,
-      waktu_diminta: new Date(baseTime + 1000 * 60 * 20),
-      waktu_dipenuhi: new Date(baseTime + 1000 * 60 * 21), // Took 1 minute to fulfill
+      jenis_gangguan: 'DEFECT_MATERIAL',
+      waktu_lapor: new Date(baseTime + 1000 * 60 * 15),
+      waktu_selesai: new Date(baseTime + 1000 * 60 * 18), 
+      id_bahan_dibuang: b_chassis.id,
+      qty_dibuang: 1, 
     }
   });
 

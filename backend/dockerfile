@@ -1,0 +1,29 @@
+# Use a lightweight Node.js 20 Alpine image
+FROM node:20-alpine
+
+# Set the working directory inside the container
+WORKDIR /usr/src/app
+
+# Install pnpm globally inside the container
+RUN npm install -g pnpm
+
+# Copy package.json and pnpm-lock.yaml first (for efficient caching)
+COPY package.json pnpm-lock.yaml ./
+
+# Install project dependencies
+RUN pnpm install
+
+# Copy the rest of the application code (including Prisma schema)
+COPY . .
+
+# Generate Prisma Client (CRUCIAL: Must be done before the build step)
+RUN npx prisma generate
+
+# Build the NestJS application (Using the fast SWC compiler)
+RUN pnpm run build
+
+# Expose port 3001 (The port NestJS runs on)
+EXPOSE 3001
+
+# Start the application in production mode
+CMD [ "pnpm", "run", "start:prod" ]
