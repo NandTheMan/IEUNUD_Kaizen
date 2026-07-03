@@ -98,7 +98,7 @@ export class SessionsService {
     const queueData = await this.prisma.antrianHeijunka.findMany({
       where: {
         id_sesi: sessionId,
-        status: 'QUEUED'
+        status: { in: ['QUEUED', 'RELEASED'] },
       },
       orderBy: { urutan: 'asc' },
       include: { produk: true }
@@ -110,6 +110,7 @@ export class SessionsService {
       nama_produk: q.produk.nama_produk,
       kode_produk: q.kode_produk,
       sequence: q.urutan,
+      status: q.status,
     }));
 
     return { workstations, items, heijunkaQueue };
@@ -223,6 +224,49 @@ export class SessionsService {
       }
 
       return { success: true, message: 'Queue dynamically re-leveled.', count: queueToInsert.length };
+    });
+  }
+
+  async shipOrder(sessionId: number, logSiklusId: number, heijunkaId: number) {
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Get both records to validate them
+      const finishedGood = await tx.logSiklusKanban.findUniqueOrThrow({
+        where: { id: logSiklusId },
+      });
+      const order = await tx.antrianHeijunka.findUniqueOrThrow({ where: { id: heijunkaId } });
+
+      // 2. Perform validations
+      if (finishedGood.id_sesi !== sessionId || order.id_sesi !== sessionId) {
+        throw new BadRequestException('Item or order does not belong to this session.');
+      }
+      if (finishedGood.status !== 'DONE' || finishedGood.id_workstation !== 'WS4') {
+        throw new BadRequestException('Item is not a finished good at the final workstation.');
+      }
+      // An order can be shipped as long as it's not already shipped or cancelled
+      if (order.status === 'SHIPPED') {
+        throw new BadRequestException('This order has already been shipped.');
+      }
+      if (finishedGood.id_produk !== order.id_produk) {
+        throw new BadRequestException(
+          `Product mismatch: Cannot fulfill order for Product ID ${order.id_produk} with Product ID ${finishedGood.id_produk}.`
+        );
+      }
+
+      // 3. Atomically update statuses to 'SHIPPED'
+      await tx.logSiklusKanban.update({
+        where: { id: logSiklusId },
+        data: { status: 'SHIPPED' },
+      });
+
+      await tx.antrianHeijunka.update({
+        where: { id: heijunkaId },
+        data: { status: 'SHIPPED' },
+      });
+
+      return {
+        success: true,
+        message: `Order for ${order.kode_produk} fulfilled with item ${finishedGood.kode_produk}.`,
+      };
     });
   }
 

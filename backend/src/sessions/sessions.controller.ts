@@ -1,5 +1,6 @@
 import { Body, Controller, Get, NotFoundException, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { CreateSessionDto } from './dto/create-session.dto';
+import { ShipOrderDto } from './dto/ship-order.dto';
 import { SubmitOrderDto } from './dto/submit-order.dto';
 import { SessionsService } from './sessions.service';
 
@@ -38,6 +39,11 @@ export class SessionsController {
         @Body() submitOrderDto: SubmitOrderDto
     ) {
         return this.sessionsService.submitOrder(id, submitOrderDto.items);
+    }
+
+    @Post(':id/ship')
+    async shipOrder(@Param('id', ParseIntPipe) id: number, @Body() shipOrderDto: ShipOrderDto) {
+        return this.sessionsService.shipOrder(id, shipOrderDto.logSiklusId, shipOrderDto.heijunkaId);
     }
 
     @Post(':id/workstations/:wsId/toggle')

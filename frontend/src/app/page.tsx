@@ -1,107 +1,65 @@
 'use client';
 
-import { HeijunkaQueueList, ProductionKanban } from '@/components/examples/c-kanban-5';
-import { OrderingPanel } from '@/components/ordering-panel';
 import { Badge } from '@/components/reui/badge';
 import {
-  Frame,
-  FrameDescription,
-  FrameHeader,
-  FramePanel,
-  FrameTitle,
+    Frame,
+    FrameDescription,
+    FrameHeader,
+    FramePanel,
+    FrameTitle,
 } from '@/components/reui/frame';
 import { SessionInitializer } from '@/components/session-initializer';
-import { Button } from '@/components/ui/button';
+import { useSession } from '@/components/session-provider';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import { LayersIcon, Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { WorkstationControls } from '@/components/workstation-controls';
+    ArrowRight,
+    ClipboardList,
+    Factory,
+    HardHat,
+    Loader2,
+    Truck,
+    Warehouse,
+} from 'lucide-react';
+import Link from 'next/link';
 
-export default function Home() {
-  const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
-  const [boardData, setBoardData] = useState<any>(null); // Store real backend data here
-  const [isLoading, setIsLoading] = useState(true);
-  const [isStopping, setIsStopping] = useState(false);
+const ROLES = [
+  {
+    href: '/ppic',
+    title: 'PPIC',
+    description: 'Production Planning & Inventory Control',
+    icon: ClipboardList,
+  },
+  {
+    href: '/supervisor',
+    title: 'Supervisor',
+    description: 'Oversee factory floor operations',
+    icon: HardHat,
+  },
+  {
+    href: '/warehouse',
+    title: 'Warehouse',
+    description: 'Manage raw material inventory',
+    icon: Warehouse,
+  },
+  {
+    href: '/shipping',
+    title: 'Shipping',
+    description: 'Handle final product delivery',
+    icon: Truck,
+  },
+  { href: '/ws/WS1', title: 'Workstation 1', description: 'Perakitan Chassis & Axle', icon: Factory },
+  { href: '/ws/WS2', title: 'Workstation 2', description: 'Perakitan Roda', icon: Factory },
+  { href: '/ws/WS3', title: 'Workstation 3', description: 'Pemasangan Body', icon: Factory },
+  { href: '/ws/WS4', title: 'Workstation 4', description: 'Quality Inspection', icon: Factory },
+];
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+export default function HubPage() {
+  const { activeSessionId, isLoadingSession, setActiveSessionId } = useSession();
 
-  // 1. Check for active session on load
-  useEffect(() => {
-    async function checkActiveSession() {
-      try {
-        const res = await fetch(`${apiUrl}/sessions/active`, { cache: 'no-store' });
-        if (res.ok) {
-          const session = await res.json();
-          if (session && session.id) {
-            setActiveSessionId(session.id);
-            // setActiveSessionId(1);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to check for active session:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    checkActiveSession();
-  }, [apiUrl]);
-
-  async function fetchBoardData() {
-      try {
-        const res = await fetch(`${apiUrl}/sessions/${activeSessionId}/kanban-board`, {
-          cache: 'no-store',
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setBoardData(data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch kanban board state:', error);
-      }
-    }
-
-  // 2. Fetch the Kanban data if a session is active
-  useEffect(() => {
-    if (!activeSessionId) return;
-
-    fetchBoardData();
-    const interval = setInterval(fetchBoardData, 3000);
-
-    return () => clearInterval(interval);
-  }, [activeSessionId, apiUrl]);
-
-  useEffect(() => {
-    fetchBoardData(); // Fetch immediately
-    const interval = setInterval(fetchBoardData, 3000); // Poll every 3 seconds
-    return () => clearInterval(interval);
-  }, [activeSessionId, apiUrl]);
-
-  const handleStopSession = async () => {
-    setIsStopping(true);
-    try {
-      const res = await fetch(`${apiUrl}/sessions/stop`, { method: 'POST' });
-      if (!res.ok) throw new Error('Failed to stop the session.');
-      setActiveSessionId(null);
-      setBoardData(null);
-    } catch (error) {
-      console.error('Failed to stop session:', error);
-    } finally {
-      setIsStopping(false);
-    }
-  };
-
-  if (isLoading) {
+  if (isLoadingSession) {
     return (
       <div className="flex h-screen w-screen items-center justify-center gap-2 text-muted-foreground">
         <Loader2 className="h-5 w-5 animate-spin" />
-        <span>Loading...</span>
+        <span>Connecting...</span>
       </div>
     );
   }
@@ -114,93 +72,33 @@ export default function Home() {
     );
   }
 
-  const queueCount = boardData?.heijunkaQueue?.length ?? 0;
-
   return (
-    <div className="grid flex-1 grid-cols-3 grid-rows-[minmax(0,1fr)] gap-4 overflow-hidden p-4">
-      {/* Kanban Section */}
-      <Frame stacked className="col-span-2 flex h-full min-h-0 flex-col">
-        <FrameHeader className="flex shrink-0 flex-row items-center justify-between">
+    <div className="flex h-screen w-screen items-center justify-center bg-muted/50 p-4">
+      <Frame className="w-full max-w-4xl">
+        <FrameHeader className="flex-row items-center justify-between">
           <div>
-            <FrameTitle className="font-mono text-3xl">Halo, PPIC!</FrameTitle>
-            <FrameDescription className="text-xl font-light">
-              Berikut Jadwal Kita Hari Ini!
-            </FrameDescription>
+            <FrameTitle>Welcome to the Factory Floor</FrameTitle>
+            <FrameDescription>Select your role to continue.</FrameDescription>
           </div>
-          <div className="flex items-center gap-4">
-            {boardData && (
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="gap-2">
-                    <LayersIcon className="h-4 w-4" />
-                    Lihat Antrian
-                    {queueCount > 0 && (
-                      <Badge variant="secondary" size="sm">
-                        {queueCount}
-                      </Badge>
-                    )}
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-2xl">
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                      <LayersIcon className="text-muted-foreground h-5 w-5" />
-                      Heijunka Queue
-                    </DialogTitle>
-                    <DialogDescription>
-                      Urutan rilis produksi yang telah diratakan (leveled)
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="max-h-[60vh] overflow-y-auto pr-1">
-                    <HeijunkaQueueList queue={boardData.heijunkaQueue ?? []} />
-                  </div>
-                </DialogContent>
-              </Dialog>
-            )}
-            <Badge variant="outline">Sesi Aktif: {activeSessionId}</Badge>
-            <Button variant="destructive" onClick={handleStopSession} disabled={isStopping}>
-              {isStopping && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isStopping ? 'Menghentikan...' : 'Hentikan Sesi'}
-            </Button>
-          </div>
+          <Badge variant="outline">Active Session: {activeSessionId}</Badge>
         </FrameHeader>
-        <FramePanel className="min-h-0 flex-1 overflow-hidden">
-          {boardData ? (
-            <ProductionKanban
-              workstations={boardData.workstations}
-              items={boardData.items}
-              className="h-full"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center">
-              <Loader2 className="text-muted-foreground h-8 w-8 animate-spin" />
-            </div>
-          )}
+        <FramePanel>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {ROLES.map((role) => (
+              <Link key={role.href} href={role.href} className="group block rounded-lg border border-border bg-card p-4 text-card-foreground transition-all hover:border-primary/40 hover:bg-primary/5 hover:shadow-md">
+                <div className="flex items-center justify-between">
+                  <role.icon className="h-6 w-6 text-muted-foreground transition-colors group-hover:text-primary" />
+                  <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 transition-all group-hover:translate-x-1 group-hover:opacity-100" />
+                </div>
+                <div className="mt-4">
+                  <h3 className="text-base font-semibold">{role.title}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">{role.description}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
         </FramePanel>
       </Frame>
-
-      {/* Ordering Section */}
-      <div className="col-span-1 flex h-full flex-col gap-4 min-h-0">
-
-        {/* Ordering Panel (Top Half) */}
-        <OrderingPanel 
-          sessionId={activeSessionId} 
-          className="flex-1" 
-          onOrderComplete={fetchBoardData} // Instantly refresh kanban when ordered!
-        />
-
-        {/* Workstation Simulator (Bottom Half) */}
-        {boardData && boardData.workstations && (
-          <WorkstationControls 
-            sessionId={activeSessionId}
-            workstations={boardData.workstations}
-            className="flex-1"
-            onActionComplete={fetchBoardData} // Instantly refresh kanban when toggled!
-          />
-        )}
-
-      </div>
-      
     </div>
   );
 }

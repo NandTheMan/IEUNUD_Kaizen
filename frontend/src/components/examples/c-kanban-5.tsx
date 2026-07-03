@@ -3,14 +3,13 @@
 import { Badge } from "@/components/reui/badge"
 import {
   Frame,
-  FrameDescription,
   FrameHeader,
   FramePanel,
-  FrameTitle,
+  FrameTitle
 } from "@/components/reui/frame"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
-import { AlertTriangleIcon, ClockIcon, LayersIcon, PackageIcon } from "lucide-react"
+import { AlertTriangleIcon, ClockIcon, PackageIcon } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 
 // ---------- Types ----------
@@ -88,25 +87,25 @@ function OverflowChip({ items }: { items: { kode_produk: string }[] }) {
   )
 }
 
-// ---------- Queue card (awaiting pull from previous workstation) ----------
+// ---------- Queue summary (consolidated ghost tickets awaiting a pull) ----------
 
-function QueueCard({ item }: { item: ProductionItem }) {
+function QueueSummaryCard({ items }: { items: ProductionItem[] }) {
+  if (items.length === 0) return null
   return (
-    <Frame
-      variant="ghost"
-      spacing="sm"
-      className="border-muted-foreground/30 bg-muted/10 min-w-0 flex-1 border-2 border-dashed p-0 opacity-80"
+    <div
+      title={items.map((i) => i.kode_produk).join(", ")}
+      className="border-muted-foreground/40 bg-muted/10 flex h-full min-w-0 flex-1 items-center gap-2 rounded-md border border-dashed px-2.5"
     >
-      <FramePanel className="flex h-full flex-col items-center justify-center gap-1 p-2 text-center">
-        <AlertTriangleIcon className="text-muted-foreground/50 size-4" />
-        <span className="text-muted-foreground truncate text-xs font-semibold">
-          {item.kode_produk}
+      <AlertTriangleIcon className="text-muted-foreground/60 size-3.5 shrink-0" />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="text-muted-foreground truncate text-[11px] font-semibold">
+          Menunggu Tarikan{items.length > 1 ? ` ×${items.length}` : ""}
         </span>
-        <Badge variant="outline" size="sm" className="bg-background">
-          Menunggu Tarikan
-        </Badge>
-      </FramePanel>
-    </Frame>
+        <span className="text-muted-foreground/70 truncate text-[10px]">
+          {items.map((i) => i.kode_produk).join(", ")}
+        </span>
+      </div>
+    </div>
   )
 }
 
@@ -201,9 +200,11 @@ export function HeijunkaQueueList({ queue }: { queue: HeijunkaQueueItem[] }) {
   }
 
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+    <div className="flex items-start gap-2">
       {sorted.map((item) => (
-        <HeijunkaCard key={item.id} item={item} />
+        <div key={item.id} className="w-40 shrink-0">
+          <HeijunkaCard item={item} />
+        </div>
       ))}
     </div>
   )
@@ -275,7 +276,7 @@ function WorkstationRow({
             <>
               {visibleActive.map((item) =>
                 item.status === "QUEUE" ? (
-                  <QueueCard key={item.id} item={item} />
+                  <QueueSummaryCard key={item.id} items={[item]} />
                 ) : (
                   <WipCard key={item.id} item={item} now={now} />
                 )

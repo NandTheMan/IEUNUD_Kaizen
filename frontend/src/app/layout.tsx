@@ -1,3 +1,4 @@
+import { SessionProvider } from "@/components/session-provider";
 import { cn } from "@/lib/utils";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, JetBrains_Mono, Space_Grotesk } from "next/font/google";
@@ -32,7 +33,11 @@ export default function RootLayout({
       lang="en"
       className={cn("h-full", "antialiased", geistSans.variable, geistMono.variable, "font-mono", jetbrainsMono.variable, "font-heading", spaceGroteskHeading.variable)}
     >
-      <body className="h-screen flex flex-col bg-muted/50">{children}</body>
+      <body className="h-screen flex flex-col bg-muted/50">
+        <SessionProvider>
+          {children}
+        </SessionProvider>
+      </body>
     </html>
   );
 }
