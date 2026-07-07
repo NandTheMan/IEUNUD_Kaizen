@@ -4,16 +4,17 @@ import { HeijunkaQueueItem, HeijunkaQueueList, ProductionItem } from '@/componen
 import { Badge } from '@/components/reui/badge';
 import { Frame, FrameDescription, FrameHeader, FramePanel, FrameTitle } from '@/components/reui/frame';
 import { useSession } from '@/components/session-provider';
+import { useSocket } from '@/components/socket-provider';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, useDraggable, useDroppable } from '@dnd-kit/core';
 import {
-    AlertCircle,
-    CheckCircle2,
-    Loader2,
-    Package,
-    PackageCheck,
-    Ship,
-    Target
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  Package,
+  PackageCheck,
+  Ship,
+  Target
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -84,6 +85,7 @@ export default function ShippingPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const { socket } = useSocket();
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -103,13 +105,18 @@ export default function ShippingPage() {
 
   useEffect(() => {
     if (!isLoadingSession && !activeSessionId) router.push('/');
-    if (activeSessionId) {
-      fetchBoardData();
-      const interval = setInterval(fetchBoardData, 5000);
-      return () => clearInterval(interval);
+    if (activeSessionId && socket) {
+      fetchBoardData(); // Initial fetch
+
+      // Listen for real-time updates
+      socket.on('kanban_updated', fetchBoardData);
+
+      // Clean up the listener
+      return () => {
+        socket.off('kanban_updated', fetchBoardData);
+      };
     }
-    console.log(activeSessionId)
-  }, [activeSessionId, isLoadingSession, router, fetchBoardData]);
+  }, [activeSessionId, isLoadingSession, router, fetchBoardData, socket]);
 
   const { heijunkaQueue, finishedGoods } = useMemo(() => {
     const allQueue = boardData?.heijunkaQueue ?? [];

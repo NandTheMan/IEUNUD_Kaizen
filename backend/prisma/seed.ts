@@ -1,5 +1,5 @@
-import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -64,7 +64,7 @@ async function main() {
     data: [
       { id_skenario: scenario.id, id_workstation: 'WS1', is_pacemaker: true },
       { id_skenario: scenario.id, id_workstation: 'WS2', is_pacemaker: false },
-      { id_skenario: scenario.id, id_workstation: 'WS3', is_pacemaker: false },  // 👈 THE BRAIN
+      { id_skenario: scenario.id, id_workstation: 'WS3', is_pacemaker: false },
       { id_skenario: scenario.id, id_workstation: 'WS4', is_pacemaker: false },
     ],
   });
@@ -82,14 +82,26 @@ async function main() {
   });
 
   // 6. STEPS (Added WS1 and WS2 so the Simulator has text to display)
-  await prisma.skenarioLangkahKerja.createMany({
+  const stepWs1 = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario.id, id_produk: 99, id_workstation: 'WS1', urutan_langkah: 1, deskripsi_tugas: 'Rakit Chassis Utama dengan 2 Axle.', standard_time_detik: 20 }});
+  const stepWs2 = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario.id, id_produk: 99, id_workstation: 'WS2', urutan_langkah: 1, deskripsi_tugas: 'Pasang 4 Roda pada Axle.', standard_time_detik: 25 }});
+  const stepWs3A = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario.id, id_produk: 1, id_workstation: 'WS3', urutan_langkah: 1, deskripsi_tugas: 'Pasang Body Standard pada rolling chassis.', standard_time_detik: 30 }});
+  const stepWs3B = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario.id, id_produk: 2, id_workstation: 'WS3', urutan_langkah: 1, deskripsi_tugas: 'Pasang Body Premium (Perlu Kalibrasi).', standard_time_detik: 50 }});
+  const stepWs4A = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario.id, id_produk: 1, id_workstation: 'WS4', urutan_langkah: 1, deskripsi_tugas: 'Inspeksi Visual & Fungsi untuk mobil standard.', standard_time_detik: 15 }});
+  const stepWs4B = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario.id, id_produk: 2, id_workstation: 'WS4', urutan_langkah: 1, deskripsi_tugas: 'Inspeksi Lengkap untuk mobil premium.', standard_time_detik: 20 }});
+
+  // NEW: BOM for each step
+  await prisma.bomLangkah.createMany({
     data: [
-      { id_skenario: scenario.id, id_produk: 99, id_workstation: 'WS1', urutan_langkah: 1, deskripsi_tugas: 'Rakit Chassis Utama', standard_time_detik: 20 },
-      { id_skenario: scenario.id, id_produk: 99, id_workstation: 'WS2', urutan_langkah: 1, deskripsi_tugas: 'Pasang 4 Roda', standard_time_detik: 25 },
-      { id_skenario: scenario.id, id_produk: 1, id_workstation: 'WS3', urutan_langkah: 1, deskripsi_tugas: 'Pasang Body Standard', standard_time_detik: 30 },
-      { id_skenario: scenario.id, id_produk: 2, id_workstation: 'WS3', urutan_langkah: 1, deskripsi_tugas: 'Pasang Body Premium (Perlu Kalibrasi)', standard_time_detik: 50 },
-      { id_skenario: scenario.id, id_produk: 1, id_workstation: 'WS4', urutan_langkah: 1, deskripsi_tugas: 'Inspeksi Visual & Fungsi', standard_time_detik: 15 },
-      { id_skenario: scenario.id, id_produk: 2, id_workstation: 'WS4', urutan_langkah: 1, deskripsi_tugas: 'Inspeksi Lengkap Premium', standard_time_detik: 20 },
+      // WS1: Rakit Chassis Utama
+      { id_langkah: stepWs1.id, id_bahan: b_chassis.id, qty_dibutuhkan: 1 },
+      { id_langkah: stepWs1.id, id_bahan: b_axle.id, qty_dibutuhkan: 2 },
+      // WS2: Pasang 4 Roda
+      { id_langkah: stepWs2.id, id_bahan: b_roda.id, qty_dibutuhkan: 4 },
+      { id_langkah: stepWs2.id, id_bahan: b_baut.id, qty_dibutuhkan: 16 }, // 4 per roda
+      // WS3: Pasang Body
+      { id_langkah: stepWs3A.id, id_bahan: b_body_a.id, qty_dibutuhkan: 1 },
+      { id_langkah: stepWs3B.id, id_bahan: b_body_b.id, qty_dibutuhkan: 1 },
+      // WS4: No materials used, just inspection
     ]
   });
 
@@ -104,17 +116,17 @@ async function main() {
   // 8. INITIALIZE FACTORY SAFETY STOCK
   // The factory floor is populated so WS3 can immediately pull from WS2, and WS2 from WS1.
   const safetyStockToInsert = [
-    // WS1 is fully stocked with 2 Generic Chassis
-    { id_sesi: activeSession.id, id_produk: 99, kode_produk: 'GEN-WS1-INIT1', id_workstation: 'WS1', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
-    { id_sesi: activeSession.id, id_produk: 99, kode_produk: 'GEN-WS1-INIT2', id_workstation: 'WS1', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+    // WS1 is fully stocked with 2 Generic Chassis, tagged for initial products
+    { id_sesi: activeSession.id, id_produk: 99, kode_produk: 'TYPE-A-000', id_workstation: 'WS1', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+    { id_sesi: activeSession.id, id_produk: 99, kode_produk: 'TYPE-B-000', id_workstation: 'WS1', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
     
-    // WS2 is fully stocked with 2 Generic Rolling Chassis
-    { id_sesi: activeSession.id, id_produk: 99, kode_produk: 'GEN-WS2-INIT1', id_workstation: 'WS2', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
-    { id_sesi: activeSession.id, id_produk: 99, kode_produk: 'GEN-WS2-INIT2', id_workstation: 'WS2', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+    // WS2 is fully stocked with 2 Generic Rolling Chassis, tagged for initial products
+    { id_sesi: activeSession.id, id_produk: 99, kode_produk: 'TYPE-A-001', id_workstation: 'WS2', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+    { id_sesi: activeSession.id, id_produk: 99, kode_produk: 'TYPE-B-001', id_workstation: 'WS2', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
     
     // WS3 has 1 Type-A and 1 Type-B ready to be inspected by WS4
-    { id_sesi: activeSession.id, id_produk: 1, kode_produk: 'TYPE-A-INIT1', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
-    { id_sesi: activeSession.id, id_produk: 2, kode_produk: 'TYPE-B-INIT1', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+    { id_sesi: activeSession.id, id_produk: 1, kode_produk: 'TYPE-A-002', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+    { id_sesi: activeSession.id, id_produk: 2, kode_produk: 'TYPE-B-002', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
   ];
 
   await prisma.logSiklusKanban.createMany({

@@ -12,6 +12,7 @@ import {
 } from '@/components/reui/frame';
 import { SessionInitializer } from '@/components/session-initializer';
 import { useSession } from '@/components/session-provider';
+import { useSocket } from '@/components/socket-provider';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -21,7 +22,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-// import { WorkstationControls } from '@/components/workstation-controls';
 import { LayersIcon, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -29,6 +29,7 @@ export default function PPIC() {
   const { activeSessionId, isLoadingSession, setActiveSessionId } = useSession();
   const [boardData, setBoardData] = useState<any>(null); // Store real backend data here
   const [isStopping, setIsStopping] = useState(false);
+  const { socket } = useSocket();
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
   const fetchBoardData = useCallback(async () => {
@@ -48,12 +49,18 @@ export default function PPIC() {
 
   // 2. Fetch the Kanban data if a session is active
   useEffect(() => {
-    if (!activeSessionId) return;
+    if (!activeSessionId || !socket) return;
 
     fetchBoardData(); // Fetch immediately
-    const interval = setInterval(fetchBoardData, 3000); // Poll every 3 seconds
-    return () => clearInterval(interval);
-  }, [activeSessionId, fetchBoardData]);
+
+    // Listen for real-time updates
+    socket.on('kanban_updated', fetchBoardData);
+
+    // Clean up the listener when the component unmounts or dependencies change
+    return () => {
+      socket.off('kanban_updated', fetchBoardData);
+    };
+  }, [activeSessionId, fetchBoardData, socket]);
 
   const handleStopSession = async () => {
     setIsStopping(true);
