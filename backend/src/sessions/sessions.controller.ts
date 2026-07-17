@@ -41,6 +41,16 @@ export class SessionsController {
         return this.sessionsService.getKanbanBoardState(id);
     }
 
+    @Get(':id/warehouse-stock')
+    async getWarehouseStockState(@Param('id', ParseIntPipe) id: number) {
+        return this.sessionsService.getWarehouseStockState(id);
+    }
+
+    @Get(':id/low-stock-alerts')
+    async getLowStockAlerts(@Param('id', ParseIntPipe) id: number) {
+        return this.sessionsService.getLowStockAlerts(id);
+    }
+
     @Get(':id/andon-alerts')
     async getAndonAlerts(@Param('id', ParseIntPipe) id: number) {
         return this.sessionsService.getAndonAlerts(id);
@@ -109,5 +119,13 @@ export class SessionsController {
         @Param('andonId', ParseIntPipe) andonId: number,
     ) {
         return this.sessionsService.resolveAndonAlert(andonId);
+    }
+
+    @Post(':id/logistik/:logId/fulfill')
+    async fulfillLogisticsRequest(
+      @Param('id', ParseIntPipe) sessionId: number,
+      @Param('logId', ParseIntPipe) logId: number,
+    ) {
+      return this.sessionsService.fulfillLogisticsRequest(sessionId, logId);
     }
 }

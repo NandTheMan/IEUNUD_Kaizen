@@ -208,23 +208,136 @@ export class SessionsService {
     }));
   }
 
+  async getWarehouseStockState(sessionId: number) {
+    const stockData = await this.prisma.stokLiveWorkstation.findMany({
+        where: { id_sesi: sessionId },
+        include: {
+            bahan: true,
+            workstation: true,
+        },
+        orderBy: [
+            { workstation: { nama_ws: 'asc' } },
+            { bahan: { nama_bahan: 'asc' } },
+        ],
+    });
+
+    // Group by workstation
+    const groupedByWs = stockData.reduce((acc, stockItem) => {
+        const wsId = stockItem.id_workstation;
+        if (!acc[wsId]) {
+            acc[wsId] = {
+                id: wsId,
+                nama_ws: stockItem.workstation.nama_ws,
+                materials: [],
+            };
+        }
+        acc[wsId].materials.push({
+            id_bahan: stockItem.id_bahan,
+            nama_bahan: stockItem.bahan.nama_bahan,
+            gambar_url: stockItem.bahan.gambar_url,
+            stok_sekarang: stockItem.stok_sekarang,
+            safety_stock_threshold: stockItem.safety_stock_threshold,
+        });
+        return acc;
+    }, {} as Record<string, { id: string; nama_ws: string; materials: any[] }>);
+
+    return Object.values(groupedByWs);
+  }
+
   async decrementWorkstationStock(sessionId: number, wsId: string, materialId: number, quantity: number) {
-    const currentStock = await this.prisma.stokLiveWorkstation.findUniqueOrThrow({
-      where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: materialId } },
+    let alertTriggered = false;
+    const updatedStock = await this.prisma.$transaction(async (tx) => {
+      const currentStock = await tx.stokLiveWorkstation.findUniqueOrThrow({
+        where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: materialId } },
+      });
+
+      const decrementAmount = Math.min(currentStock.stok_sekarang, quantity);
+
+      const stockAfterUpdate = await tx.stokLiveWorkstation.update({
+        where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: materialId } },
+        data: { stok_sekarang: { decrement: decrementAmount } },
+      });
+
+      if (stockAfterUpdate.stok_sekarang <= stockAfterUpdate.safety_stock_threshold) {
+        const existingAlert = await tx.logLogistik.findFirst({
+            where: { id_sesi: sessionId, id_workstation: wsId, id_bahan: materialId, waktu_dipenuhi: null }
+        });
+        if (!existingAlert) {
+            const bahan = await tx.bahan.findUniqueOrThrow({ where: { id: materialId } });
+            await tx.logLogistik.create({
+                data: {
+                    id_sesi: sessionId,
+                    id_workstation: wsId,
+                    id_bahan: materialId,
+                    qty_diminta: bahan.kuantitas_pack,
+                    waktu_diminta: new Date(),
+                }
+            });
+            alertTriggered = true;
+        }
+      }
+      return stockAfterUpdate;
     });
 
-    // Don't allow stock to go below zero
-    const decrementAmount = Math.min(currentStock.stok_sekarang, quantity);
-
-    const updatedStock = await this.prisma.stokLiveWorkstation.update({
-      where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: materialId } },
-      data: { stok_sekarang: { decrement: decrementAmount } },
-    });
-
+    if (alertTriggered) {
+      this.eventsGateway.broadcastLowStockUpdate();
+    }
     // Broadcast an update so the workstation UI refreshes
     this.eventsGateway.broadcastKanbanUpdate();
 
     return updatedStock;
+  }
+
+  async getLowStockAlerts(sessionId: number) {
+    return this.prisma.logLogistik.findMany({
+        where: { id_sesi: sessionId, waktu_dipenuhi: null },
+        include: { bahan: true },
+        orderBy: { waktu_diminta: 'asc' },
+    });
+  }
+
+  async fulfillLogisticsRequest(sessionId: number, logId: number) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 1. Find the request
+      const request = await tx.logLogistik.findUnique({
+        where: { id: logId },
+      });
+
+      if (!request) {
+        throw new NotFoundException(`Permintaan logistik dengan ID ${logId} tidak ditemukan.`);
+      }
+      if (request.id_sesi !== sessionId) {
+        throw new BadRequestException('Permintaan ini bukan bagian dari sesi aktif.');
+      }
+      if (request.waktu_dipenuhi) {
+        throw new BadRequestException('Permintaan ini sudah dipenuhi.');
+      }
+
+      // 2. Fulfill the request by increasing the stock
+      await tx.stokLiveWorkstation.update({
+        where: {
+          id_sesi_id_workstation_id_bahan: {
+            id_sesi: request.id_sesi,
+            id_workstation: request.id_workstation,
+            id_bahan: request.id_bahan,
+          },
+        },
+        data: {
+          stok_sekarang: { increment: request.qty_diminta },
+        },
+      });
+
+      // 3. Mark the request as fulfilled
+      return tx.logLogistik.update({
+        where: { id: logId },
+        data: { waktu_dipenuhi: new Date() },
+      });
+    });
+
+    this.eventsGateway.broadcastKanbanUpdate();
+    this.eventsGateway.broadcastLowStockUpdate();
+
+    return { success: true, message: `Permintaan logistik #${logId} telah dipenuhi.` };
   }
 
   async getAndonAlerts(sessionId: number) {
@@ -540,10 +653,32 @@ export class SessionsService {
             );
           }
 
-          await tx.stokLiveWorkstation.update({
+          const updatedStock = await tx.stokLiveWorkstation.update({
             where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: bomItem.id_bahan } },
             data: { stok_sekarang: { decrement: bomItem.qty_dibutuhkan } },
           });
+
+          if (updatedStock.stok_sekarang <= updatedStock.safety_stock_threshold) {
+            const existingAlert = await tx.logLogistik.findFirst({
+                where: { id_sesi: sessionId, id_workstation: wsId, id_bahan: bomItem.id_bahan, waktu_dipenuhi: null }
+            });
+            // If no active request for this material exists, create one.
+            // The quantity requested (`qty_diminta`) is determined here.
+            // We are using `bomItem.bahan.kuantitas_pack`, which is the standard
+            // pack size for that specific material, defined in the database.
+            if (!existingAlert) {
+                await tx.logLogistik.create({
+                    data: {
+                        id_sesi: sessionId,
+                        id_workstation: wsId,
+                        id_bahan: bomItem.id_bahan,
+                        qty_diminta: bomItem.bahan.kuantitas_pack,
+                        waktu_diminta: new Date(),
+                    }
+                });
+                this.eventsGateway.broadcastLowStockUpdate();
+            }
+          }
         }
       }
     }
@@ -755,6 +890,7 @@ export class SessionsService {
   });
 
   this.eventsGateway.broadcastKanbanUpdate();
+  // Low stock updates are broadcast from within the transaction logic
   return result;
 }
 
