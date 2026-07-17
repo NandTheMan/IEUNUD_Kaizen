@@ -1,6 +1,7 @@
 'use client';
 
 import { HeijunkaQueueItem, HeijunkaQueueList, ProductionItem } from '@/components/examples/c-kanban-5';
+import { GlobalStatusBar } from '@/components/global-status-bar';
 import { Badge } from '@/components/reui/badge';
 import { Frame, FrameDescription, FrameHeader, FramePanel, FrameTitle } from '@/components/reui/frame';
 import { useSession } from '@/components/session-provider';
@@ -63,7 +64,7 @@ function DroppableOrderSlot({ order }: { order: HeijunkaQueueItem }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Target className="h-5 w-5 text-primary" />
-          <h3 className="text-lg font-semibold text-primary">Next Order to Ship</h3>
+          <h3 className="text-lg font-semibold text-primary">Pesanan Berikutnya</h3>
         </div>
         <Badge variant="default" size="lg" className="font-mono">
           #{order.sequence}
@@ -154,7 +155,7 @@ export default function ShippingPage() {
     const targetOrder = over.data.current as HeijunkaQueueItem;
 
     if (droppedItem.id_produk !== targetOrder.id_produk) {
-      setError('Product mismatch! Cannot ship this item for this order.');
+      setError('Produk tidak cocok! Tidak dapat mengirim item ini untuk pesanan ini.');
       setSuccess(null);
       return;
     }
@@ -183,7 +184,7 @@ export default function ShippingPage() {
   if (isLoadingSession || !activeSessionId) {
     return (
       <div className="flex h-screen items-center justify-center gap-2 text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin" /> <span>Connecting...</span>
+        <Loader2 className="h-5 w-5 animate-spin" /> <span>Menghubungkan...</span>
       </div>
     );
   }
@@ -193,18 +194,21 @@ export default function ShippingPage() {
       <div className="grid flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden p-4 md:grid-cols-2">
         {/* Top Row: Heijunka Queue */}
         <Frame stacked className="col-span-1 flex flex-col md:col-span-2 min-h-72 max-h-72">
-          <FrameHeader>
-            <FrameTitle className="flex items-center gap-2">
-              <Package className="h-5 w-5" /> Heijunka Queue
-            </FrameTitle>
-            <FrameDescription>All pending production orders.</FrameDescription>
+          <FrameHeader className="flex-row items-start justify-between">
+            <div>
+              <FrameTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" /> Antrian Heijunka
+              </FrameTitle>
+              <FrameDescription>Semua pesanan produksi yang tertunda.</FrameDescription>
+            </div>
+            <GlobalStatusBar />
           </FrameHeader>
           <FramePanel className="overflow-x-auto p-4">
             {!boardData ? (
               <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
             ) : heijunkaQueue.length === 0 ? (
               <div className="flex h-full items-center justify-center rounded-lg border-2 border-dashed text-center text-muted-foreground">
-                No pending orders.
+                Tidak ada pesanan tertunda.
               </div>
             ) : (
               <HeijunkaQueueList queue={heijunkaQueue} />
@@ -216,21 +220,21 @@ export default function ShippingPage() {
         <Frame stacked>
           <FrameHeader>
             <FrameTitle className="flex items-center gap-2">
-              <Ship className="h-5 w-5" /> Shipping Orders
+              <Ship className="h-5 w-5" /> Pengiriman Pesanan
             </FrameTitle>
-            <FrameDescription>Drag a finished good to the target order below.</FrameDescription>
+            <FrameDescription>Seret produk jadi ke target pesanan di bawah.</FrameDescription>
           </FrameHeader>
           <FramePanel className="flex flex-col gap-4">
             {nextOrderToShip ? (
               <DroppableOrderSlot order={nextOrderToShip} />
             ) : (
               <div className="flex h-full items-center justify-center rounded-lg border-2 border-dashed text-center text-muted-foreground">
-                No pending orders to ship.
+                Tidak ada pesanan tertunda untuk dikirim.
               </div>
             )}
             {error && <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>{error}</AlertDescription></Alert>}
             {success && <Alert variant="success"><CheckCircle2 className="h-4 w-4" /><AlertDescription>{success}</AlertDescription></Alert>}
-            {isSubmitting && <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /><span>Processing Shipment...</span></div>}
+            {isSubmitting && <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /><span>Memproses Pengiriman...</span></div>}
           </FramePanel>
         </Frame>
 
@@ -238,16 +242,16 @@ export default function ShippingPage() {
         <Frame stacked>
           <FrameHeader>
             <FrameTitle className="flex items-center gap-2">
-              <PackageCheck className="h-5 w-5" /> Finished Goods at WS4
+              <PackageCheck className="h-5 w-5" /> Produk Jadi di WS4
             </FrameTitle>
-            <FrameDescription>Products ready for shipping.</FrameDescription>
+            <FrameDescription>Produk siap untuk dikirim.</FrameDescription>
           </FrameHeader>
           <FramePanel className="flex flex-col gap-3 overflow-y-auto">
             {!boardData ? (
               <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
             ) : finishedGoods.length === 0 ? (
               <div className="flex h-full items-center justify-center rounded-lg border-2 border-dashed text-center text-muted-foreground">
-                No finished goods available.
+                Tidak ada produk jadi yang tersedia.
               </div>
             ) : (
               finishedGoods.map((item: ProductionItem) => (
@@ -264,7 +268,7 @@ export default function ShippingPage() {
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">{activeItem.nama_produk}</span>
               <Badge variant="secondary" size="sm">
-                Ready
+                Siap
               </Badge>
             </div>
             <p className="font-mono text-xs text-muted-foreground">{activeItem.kode_produk}</p>

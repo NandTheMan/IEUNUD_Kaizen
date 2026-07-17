@@ -1,21 +1,21 @@
 'use client';
 
-import { Button } from '@/components/ui/button';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Frame,
-  FrameHeader,
-  FramePanel,
-  FrameTitle,
-  FrameDescription,
+    Frame,
+    FrameDescription,
+    FrameHeader,
+    FramePanel,
+    FrameTitle,
 } from '@/components/reui/frame';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -50,9 +50,7 @@ export function SessionInitializer({ onSessionStart }: SessionInitializerProps) 
         setScenarios(data);
       } catch (err) {
         console.error('Failed to fetch scenarios:', err);
-        setError(
-          err instanceof Error ? `Network Error: ${err.message}` : 'An unknown error occurred'
-        );
+        setError(err instanceof Error ? `Kesalahan Jaringan: ${err.message}` : 'Terjadi kesalahan yang tidak diketahui');
       } finally {
         setIsFetchingScenarios(false);
       }
@@ -62,22 +60,22 @@ export function SessionInitializer({ onSessionStart }: SessionInitializerProps) 
 
   const handleStartSession = async () => {
     if (!selectedScenario) {
-      setError('Please select a scenario first.');
+      setError('Silakan pilih skenario terlebih dahulu.');
       return;
     }
     setIsStarting(true);
     setError(null);
     try {
-      const res = await fetch(`${apiUrl}/sessions`, {
+      const res = await fetch(`${apiUrl}/sessions/prepare-game`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id_skenario: parseInt(selectedScenario, 10) }),
       });
-      if (!res.ok) throw new Error('Failed to start session');
+      if (!res.ok) throw new Error('Gagal memulai sesi');
       const newSession = await res.json();
       onSessionStart(newSession.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred');
+      setError(err instanceof Error ? err.message : 'Terjadi kesalahan yang tidak diketahui');
     } finally {
       setIsStarting(false);
     }
@@ -90,24 +88,24 @@ export function SessionInitializer({ onSessionStart }: SessionInitializerProps) 
   return (
     <Frame stacked className="w-80 shadow-xl">
       <FrameHeader>
-        <FrameTitle>Start a New Game Session</FrameTitle>
-        <FrameDescription>Pick a scenario to begin</FrameDescription>
+        <FrameTitle>Mulai Sesi Game Baru</FrameTitle>
+        <FrameDescription>Pilih skenario untuk memulai</FrameDescription>
       </FrameHeader>
       <FramePanel className="flex flex-col gap-4">
         {isFetchingScenarios ? (
           <Skeleton className="h-9 w-full" />
         ) : scenarios.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No scenarios available. Check your backend.
+            Tidak ada skenario tersedia. Periksa backend Anda.
           </p>
         ) : (
           <Select onValueChange={setSelectedScenario} value={selectedScenario}>
             <SelectTrigger>
-              <SelectValue placeholder="Select a scenario..." />
+              <SelectValue placeholder="Pilih skenario..." />
             </SelectTrigger>
-            <SelectContent className="max-w-76">
+            <SelectContent>
               {scenarios.map((s) => (
-                <SelectItem key={s.id} value={String(s.id)} className="truncate">
+                <SelectItem key={s.id} value={String(s.id)}>
                   {s.nama_skenario}
                 </SelectItem>
               ))}
@@ -124,7 +122,7 @@ export function SessionInitializer({ onSessionStart }: SessionInitializerProps) 
           disabled={isStarting || isFetchingScenarios || !selectedScenario}
         >
           {isStarting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {isStarting ? 'Starting...' : 'Start Session'}
+          {isStarting ? 'Memulai...' : 'Mulai Sesi'}
         </Button>
 
         {error && (

@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Clock, CircleDot } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { CircleDot, Clock } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useSession } from './session-provider';
 
 function StatusPill({

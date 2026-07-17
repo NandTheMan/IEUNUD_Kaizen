@@ -5,17 +5,9 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Define a list of allowed origins for CORS
-  const allowedOrigins = ['http://localhost:3000'];
-  if (process.env.FRONTEND_URL) {
-    allowedOrigins.push(process.env.FRONTEND_URL);
-  }
-
   // Enable CORS first. This is crucial for the browser's preflight OPTIONS request to succeed.
-  app.enableCors({
-    origin: allowedOrigins,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-  });
+  // For development and simulation, a permissive CORS policy is acceptable.
+  app.enableCors();
 
   // Enable global validation pipes for DTOs
   app.useGlobalPipes(new ValidationPipe({

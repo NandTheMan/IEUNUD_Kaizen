@@ -1,8 +1,9 @@
 import {
-  OnGatewayConnection,
-  OnGatewayDisconnect,
-  WebSocketGateway,
-  WebSocketServer,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    SubscribeMessage,
+    WebSocketGateway,
+    WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
@@ -23,7 +24,29 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     console.log(`[WebSocket] Client disconnected: ${client.id}`);
   }
 
+  @SubscribeMessage('join_workstation_room')
+  handleJoinRoom(client: Socket, wsId: string) {
+    const roomName = `ws-${wsId}`;
+    client.join(roomName);
+    console.log(`[WebSocket] Client ${client.id} joined room: ${roomName}`);
+  }
+
+  @SubscribeMessage('leave_workstation_room')
+  handleLeaveRoom(client: Socket, wsId: string) {
+    const roomName = `ws-${wsId}`;
+    client.leave(roomName);
+    console.log(`[WebSocket] Client ${client.id} left room: ${roomName}`);
+  }
+
   broadcastKanbanUpdate() {
     this.server.emit('kanban_updated');
+  }
+
+  notifyWorkstation(wsId: string, payload: { title: string; message: string }) {
+    this.server.to(`ws-${wsId}`).emit('WORKSTATION_NOTIFICATION', payload);
+  }
+
+  broadcastAndonUpdate() {
+    this.server.emit('andon_updated');
   }
 }
