@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service'; // Assuming you have a PrismaService
 
 @Injectable()
 export class SessionsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private eventsGateway: EventsGateway) {}
 
   async create(skenarioId: number) {
     // 1. Ensure the scenario exists
@@ -29,6 +30,72 @@ export class SessionsService {
     });
 
     return newSession;
+  }
+
+  async prepareGame(skenarioId: number) {
+    // 1. Create a new session, which also deactivates any old ones.
+    const newSession = await this.create(skenarioId);
+
+    await this.prisma.$transaction(async (tx) => {
+      // 2. Initialize virtual material stock PER WORKSTATION for the session.
+      const workstations = await tx.workstation.findMany();
+      for (const ws of workstations) {
+        // Find all steps for this workstation in the scenario
+        const steps = await tx.skenarioLangkahKerja.findMany({
+          where: { id_skenario: skenarioId, id_workstation: ws.id },
+          include: { bom: { include: { bahan: true } } },
+        });
+
+        // Collect unique materials for the workstation
+        const materials = new Map<number, { id: number; kuantitas_pack: number }>();
+        steps.forEach(step => {
+          step.bom.forEach(bomItem => {
+            if (!materials.has(bomItem.id_bahan)) {
+              materials.set(bomItem.id_bahan, bomItem.bahan);
+            }
+          });
+        });
+
+        // Create stock entries for this workstation (2 packs each)
+        const initialStockForWs = Array.from(materials.values()).map(material => ({
+          id_sesi: newSession.id,
+          id_workstation: ws.id,
+          id_bahan: material.id,
+          stok_sekarang: 2 * material.kuantitas_pack,
+          safety_stock_threshold: material.kuantitas_pack,
+        }));
+
+        if (initialStockForWs.length > 0) {
+          await tx.stokLiveWorkstation.createMany({ data: initialStockForWs });
+        }
+      }
+
+      // 3. Hardcode the initial product-in-progress and pull signal stock for a predictable start state.
+      const safetyStockToInsert = [
+          // WS1 is stocked with two generic parts, tagged for their final products
+          { id_sesi: newSession.id, id_produk: 99, kode_produk: 'F/A-001-001', id_workstation: 'WS1', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() }, // Tagged for a PickUp
+          { id_sesi: newSession.id, id_produk: 99, kode_produk: 'A-002-001', id_workstation: 'WS1', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },   // Tagged for a D-Cab
+          { id_sesi: newSession.id, id_produk: 99, kode_produk: 'F/A-003-001', id_workstation: 'WS2', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          { id_sesi: newSession.id, id_produk: 99, kode_produk: 'F/A-001-002', id_workstation: 'WS2', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          // WS3 has finished products, ready for WS4. Note the id_produk has changed from 99.
+          { id_sesi: newSession.id, id_produk: 1, kode_produk: 'F/A-001-002', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          { id_sesi: newSession.id, id_produk: 2, kode_produk: 'A-002-002', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() }, // A finished D-Cab
+          { id_sesi: newSession.id, id_produk: 3, kode_produk: 'F/A-003-002', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() }, // A finished MPV
+          // Create initial pull signals for WS4 to start the process, representing empty slots in its supermarket.
+          { id_sesi: newSession.id, id_produk: 1, kode_produk: 'PULL-SIGNAL', id_workstation: 'WS4', status: 'QUEUE', langkah_sekarang: 1, waktu_mulai: new Date() },
+          { id_sesi: newSession.id, id_produk: 2, kode_produk: 'PULL-SIGNAL', id_workstation: 'WS4', status: 'QUEUE', langkah_sekarang: 1, waktu_mulai: new Date() },
+          { id_sesi: newSession.id, id_produk: 3, kode_produk: 'PULL-SIGNAL', id_workstation: 'WS4', status: 'QUEUE', langkah_sekarang: 1, waktu_mulai: new Date() },
+      ];
+      await tx.logSiklusKanban.createMany({ data: safetyStockToInsert });
+    });
+
+    // Also broadcast an update so dashboards refresh
+    this.eventsGateway.broadcastKanbanUpdate();
+
+    return {
+        ...newSession,
+        message: `Session ${newSession.id} created and initial safety stock populated.`
+    };
   }
 
   findActive() {
@@ -85,6 +152,7 @@ export class SessionsService {
       id: item.id,
       id_produk: item.id_produk,
       nama_produk: item.produk.nama_produk,
+      gambar_url: item.produk.gambar_url,
       kode_produk: item.kode_produk,
       id_workstation: item.id_workstation,
       waktu_mulai: item.waktu_mulai.toISOString(),
@@ -116,6 +184,59 @@ export class SessionsService {
     return { workstations, items, heijunkaQueue };
   }
 
+  async getWorkstationStock(sessionId: number, wsId: string) {
+    const stock = await this.prisma.stokLiveWorkstation.findMany({
+      where: {
+        id_sesi: sessionId,
+        id_workstation: wsId,
+      },
+      include: {
+        bahan: true,
+      },
+      orderBy: {
+        bahan: {
+          nama_bahan: 'asc',
+        },
+      },
+    });
+
+    return stock.map(s => ({
+      id_bahan: s.id_bahan,
+      nama_bahan: s.bahan.nama_bahan,
+      gambar_url: s.bahan.gambar_url,
+      stok_sekarang: s.stok_sekarang,
+    }));
+  }
+
+  async decrementWorkstationStock(sessionId: number, wsId: string, materialId: number, quantity: number) {
+    const currentStock = await this.prisma.stokLiveWorkstation.findUniqueOrThrow({
+      where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: materialId } },
+    });
+
+    // Don't allow stock to go below zero
+    const decrementAmount = Math.min(currentStock.stok_sekarang, quantity);
+
+    const updatedStock = await this.prisma.stokLiveWorkstation.update({
+      where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: materialId } },
+      data: { stok_sekarang: { decrement: decrementAmount } },
+    });
+
+    // Broadcast an update so the workstation UI refreshes
+    this.eventsGateway.broadcastKanbanUpdate();
+
+    return updatedStock;
+  }
+
+  async getAndonAlerts(sessionId: number) {
+    return this.prisma.logAndon.findMany({
+      where: {
+        id_sesi: sessionId,
+        waktu_selesai: null,
+      },
+      orderBy: { waktu_lapor: 'asc' }, // Oldest first
+    });
+  }
+
   async submitOrder(sessionId: number, items: { id_produk: number; target_qty: number }[]) {
     const session = await this.prisma.sesiPraktikum.findUnique({
       where: { id: sessionId },
@@ -125,7 +246,7 @@ export class SessionsService {
       throw new BadRequestException('Cannot add orders to an inactive session.');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 1. Record Production Targets (Historical record of total requested)
       for (const item of items) {
         if (item.target_qty > 0) {
@@ -225,10 +346,13 @@ export class SessionsService {
 
       return { success: true, message: 'Queue dynamically re-leveled.', count: queueToInsert.length };
     });
+
+    this.eventsGateway.broadcastKanbanUpdate();
+    return result;
   }
 
   async shipOrder(sessionId: number, logSiklusId: number, heijunkaId: number) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // 1. Get both records to validate them
       const finishedGood = await tx.logSiklusKanban.findUniqueOrThrow({
         where: { id: logSiklusId },
@@ -266,8 +390,98 @@ export class SessionsService {
       return {
         success: true,
         message: `Order for ${order.kode_produk} fulfilled with item ${finishedGood.kode_produk}.`,
+        shippedProductId: finishedGood.id_produk,
       };
     });
+
+    // After shipping, create a new pull signal (Kanban card) for the final workstation
+    // to replenish the stock that was just taken.
+    await this.prisma.logSiklusKanban.create({
+      data: {
+        id_sesi: sessionId,
+        id_produk: result.shippedProductId, // The product that was shipped
+        kode_produk: 'PULL-SIGNAL',
+        id_workstation: 'WS4',
+        status: 'QUEUE',
+        waktu_mulai: new Date(),
+      }
+    });
+
+    this.eventsGateway.broadcastKanbanUpdate();
+    // Notify the UI for a better user experience
+    this.eventsGateway.notifyWorkstation('WS4', { title: 'Sinyal Tarikan Diterima!', message: 'Satu unit telah dikirim. Anda diotorisasi untuk menarik pekerjaan baru dari WS3.' });
+    return { success: result.success, message: result.message };
+  }
+
+  async reportAndon(sessionId: number, wsId: string, message?: string) {
+    const andonLog = await this.prisma.logAndon.create({
+      data: {
+        id_sesi: sessionId,
+        id_workstation: wsId,
+        jenis_gangguan: message || `Bantuan dibutuhkan di ${wsId}`,
+        waktu_lapor: new Date(),
+      },
+    });
+
+    // Broadcast to all clients (specifically for supervisor dashboard)
+    this.eventsGateway.broadcastAndonUpdate();
+
+    return andonLog;
+  }
+
+  async resolveAndonAlert(andonId: number) {
+    const alert = await this.prisma.logAndon.findUnique({ where: { id: andonId } });
+    if (!alert) {
+      throw new NotFoundException(`Andon alert with ID ${andonId} not found.`);
+    }
+
+    const resolvedAlert = await this.prisma.logAndon.update({
+      where: { id: andonId },
+      data: { waktu_selesai: new Date() },
+    });
+
+    // Broadcast update so supervisor UI refreshes
+    this.eventsGateway.broadcastAndonUpdate();
+
+    return resolvedAlert;
+  }
+
+  async reportNg(sessionId: number, wsId: string, reason: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 1. Find the active work-in-progress item for this station
+      const activeWip = await tx.logSiklusKanban.findFirst({
+        where: {
+          id_sesi: sessionId,
+          id_workstation: wsId,
+          status: 'WIP',
+        },
+      });
+
+      if (!activeWip) {
+        throw new BadRequestException('Tidak ada pekerjaan aktif untuk dilaporkan sebagai NG.');
+      }
+
+      // 2. Create a record in the NG log
+      await tx.logProdukNG.create({
+        data: {
+          id_sesi: activeWip.id_sesi,
+          id_produk: activeWip.id_produk,
+          kode_produk: activeWip.kode_produk,
+          id_workstation: activeWip.id_workstation,
+          alasan_ng: reason,
+        },
+      });
+
+      // 3. Delete the original item from the Kanban log
+      await tx.logSiklusKanban.delete({
+        where: { id: activeWip.id },
+      });
+
+      return { success: true, message: `Produk ${activeWip.kode_produk} telah dilaporkan sebagai NG.` };
+    });
+
+    this.eventsGateway.broadcastKanbanUpdate();
+    return result;
   }
 
   /**
@@ -292,13 +506,47 @@ export class SessionsService {
     throw new BadRequestException('Sesi tidak aktif.');
   }
 
-  return this.prisma.$transaction(async (tx) => {
+  const result = await this.prisma.$transaction(async (tx) => {
     // ====================================================================
     // 1. CHECK FOR ACTIVE WORK (WIP) — unchanged
     // ====================================================================
-    const activeWip = await tx.logSiklusKanban.findFirst({
+    let activeWip = await tx.logSiklusKanban.findFirst({
       where: { id_sesi: sessionId, id_workstation: wsId, status: 'WIP' },
+      include: { produk: true },
     });
+    
+    // VIRTUAL MATERIAL DECREMENT
+    // When an operator toggles a station with an active item, we consume the materials for the CURRENT step.
+    if (activeWip) {
+      const currentStepDetails = await tx.skenarioLangkahKerja.findFirst({
+        where: {
+          id_skenario: session.id_skenario,
+          id_produk: activeWip.id_produk,
+          id_workstation: wsId,
+          urutan_langkah: activeWip.langkah_sekarang,
+        },
+        include: { bom: { include: { bahan: true } } },
+      });
+
+      if (currentStepDetails?.bom && currentStepDetails.bom.length > 0) {
+        for (const bomItem of currentStepDetails.bom) {
+          const currentStock = await tx.stokLiveWorkstation.findUniqueOrThrow({
+            where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: bomItem.id_bahan } },
+          });
+
+          if (currentStock.stok_sekarang < bomItem.qty_dibutuhkan) {
+            throw new BadRequestException(
+              `Stok ${bomItem.bahan.nama_bahan} di ${wsId} tidak mencukupi. Sisa: ${currentStock.stok_sekarang}, dibutuhkan: ${bomItem.qty_dibutuhkan}.`
+            );
+          }
+
+          await tx.stokLiveWorkstation.update({
+            where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: bomItem.id_bahan } },
+            data: { stok_sekarang: { decrement: bomItem.qty_dibutuhkan } },
+          });
+        }
+      }
+    }
 
     if (activeWip) {
       const totalSteps = await tx.skenarioLangkahKerja.count({
@@ -317,16 +565,32 @@ export class SessionsService {
         }
 
         const stepDetails = await tx.skenarioLangkahKerja.findFirst({
-          where: { id_skenario: session.id_skenario, id_produk: activeWip.id_produk, id_workstation: wsId, urutan_langkah: nextStepNum }
+          where: { id_skenario: session.id_skenario, id_produk: activeWip.id_produk, id_workstation: wsId, urutan_langkah: nextStepNum },
+          include: {
+            bom: {
+              include: {
+                bahan: true,
+              },
+            },
+          },
         });
+
+        const bomForStep = stepDetails?.bom.map(b => ({
+          id_bahan: b.id_bahan,
+          nama_bahan: b.bahan.nama_bahan,
+          qty_dibutuhkan: b.qty_dibutuhkan,
+          gambar_url: b.bahan.gambar_url,
+        })) || [];
 
         return {
           action: 'NEXT',
           kode_produk: activeWip.kode_produk,
+          nama_produk: activeWip.produk.nama_produk,
           langkah_sekarang: nextStepNum,
           total_langkah: maxSteps,
           deskripsi_tugas: stepDetails?.deskripsi_tugas || `Langkah ${nextStepNum}`,
           message: `Lanjut ke langkah ${nextStepNum}/${maxSteps}`,
+          bom: bomForStep,
         };
       } else {
         const finished = await tx.logSiklusKanban.updateMany({
@@ -346,135 +610,75 @@ export class SessionsService {
     }
 
     // ====================================================================
-    // 2. LOOK UP THIS STATION'S CONFIG — now used for is_pacemaker instead
-    //    of a wip_limit that no longer exists on this model.
-    // ====================================================================
-    const wsConfig = await tx.skenarioWorkstation.findFirst({
-      where: { id_skenario: session.id_skenario, id_workstation: wsId },
-    });
-    if (!wsConfig) {
-      throw new BadRequestException(`Konfigurasi untuk ${wsId} tidak ditemukan di skenario ini.`);
-    }
-    const isPacemaker = wsConfig.is_pacemaker;
-
-    // ====================================================================
-    // 3. CHECK FOR VISUAL QUEUE TICKET (ghost ticket left by a downstream pull)
+    // 2. NO ACTIVE WIP, SO PULL NEW WORK BASED ON A PULL SIGNAL (QUEUE TICKET)
+    // This logic is now UNIFIED for all workstations.
     // ====================================================================
     const pendingVisualQueue = await tx.logSiklusKanban.findFirst({
       where: { id_sesi: sessionId, id_workstation: wsId, status: 'QUEUE' },
-      orderBy: { id: 'asc' }
+      orderBy: { id: 'asc' },
     });
 
-    // ====================================================================
-    // 4. PEEK the candidate item (don't claim yet) — we need to know which
-    //    product it is *before* checking the safety-stock gate, since the
-    //    limit is now per-product (SkenarioWorkstationProduk) rather than
-    //    a single flat number per station.
-    // ====================================================================
-    let idProduk: number;
-    let kodeProduk: string;
-    let sourceLogId: number | null = null;
-    let sourceStatus: string | null = null;
-    let previousWsId: string | null = null;
-
-    if (isPacemaker) {
-      // ----------------------------------------------------
-      // PACEMAKER: The Digital -> Physical release point
-      // ----------------------------------------------------
-      const nextInQueue = await tx.antrianHeijunka.findFirst({
-        where: { id_sesi: sessionId, status: 'QUEUED' },
-        orderBy: { urutan: 'asc' },
-      });
-      if (!nextInQueue) throw new BadRequestException('Antrian Heijunka kosong! Tidak ada pesanan.');
-
-      idProduk = nextInQueue.id_produk;
-      kodeProduk = nextInQueue.kode_produk;
-
-      if (pendingVisualQueue) {
-        sourceLogId = pendingVisualQueue.id;
-        sourceStatus = 'QUEUE';
-      }
-
-      // Claim the heijunka ticket now (safe to do before the gate check,
-      // since this ticket is *this station's* input, not its output — the
-      // gate below only cares about this station's own DONE buffer).
-      const claimedTicket = await tx.antrianHeijunka.updateMany({
-        where: { id: nextInQueue.id, status: 'QUEUED' },
-        data: { status: 'RELEASED' },
-      });
-      if (claimedTicket.count === 0) {
-        throw new BadRequestException('Item antrian baru saja diambil oleh proses lain, coba lagi.');
-      }
-    } else {
-      // ----------------------------------------------------
-      // SUPERMARKET STATION: Physical -> Physical pull
-      // ----------------------------------------------------
-      // NOTE: still derives the previous station from the "WSn" naming
-      // convention — is_pacemaker fixes the pacemaker check, but there's
-      // still no explicit ordering field for "who feeds whom" downstream.
-      const wsNumber = parseInt(wsId.replace('WS', ''));
-      previousWsId = `WS${wsNumber - 1}`;
-
-      const availableStock = await tx.logSiklusKanban.findFirst({
-        where: { id_sesi: sessionId, id_workstation: previousWsId, status: 'DONE' },
-        orderBy: { waktu_selesai: 'asc' },
-      });
-      if (!availableStock) {
-        throw new BadRequestException(`Menunggu suplai dari ${previousWsId}.`);
-      }
-
-      idProduk = availableStock.id_produk;
-      kodeProduk = availableStock.kode_produk;
-      sourceLogId = availableStock.id;
-      sourceStatus = 'DONE';
+    if (!pendingVisualQueue) {
+      throw new BadRequestException(`Tidak ada sinyal tarikan (Kanban) untuk memulai pekerjaan di ${wsId}.`);
     }
 
-    // ====================================================================
-    // 5. SAFETY STOCK GATE — per (skenario, workstation, produk) now
-    // ====================================================================
-    const productLimit = await tx.skenarioWorkstationProduk.findFirst({
-      where: { id_skenario: session.id_skenario, id_workstation: wsId, id_produk: idProduk },
-    });
+    const productToBuildId = pendingVisualQueue.id_produk;
+    const wsNumber = parseInt(wsId.replace('WS', ''));
 
-    if (productLimit) {
-      const currentStock = await tx.logSiklusKanban.count({
-        where: { id_sesi: sessionId, id_workstation: wsId, status: 'DONE', id_produk: idProduk },
-      });
-
-      if (currentStock >= productLimit.safety_stock) {
-        throw new BadRequestException(
-          `${wsId} tidak bisa mulai — safety stock ${kodeProduk} penuh (${currentStock}/${productLimit.safety_stock}). Tunggu stasiun berikutnya menarik stok.`
-        );
+    // If this is the first station, it creates a part from raw materials.
+    if (wsNumber === 1) {
+      if (productToBuildId !== 99) {
+        throw new Error(`WS1 received a pull signal for a non-generic part (ID: ${productToBuildId})`);
       }
-    }
+      // Consume the queue ticket
+      await tx.logSiklusKanban.delete({ where: { id: pendingVisualQueue.id } });
 
-    // ====================================================================
-    // 6. Ghost ticket for the supermarket path (unchanged from before,
-    //    now placed after the gate so we don't leave a ghost ticket behind
-    //    for a pull that then gets rejected by the safety-stock check).
-    // ====================================================================
-    if (!isPacemaker && previousWsId) {
-      await tx.logSiklusKanban.create({
+      // Create the new WIP item. It's just a generic part.
+      activeWip = await tx.logSiklusKanban.create({
         data: {
           id_sesi: sessionId,
-          id_produk: idProduk,
-          kode_produk: kodeProduk,
-          id_workstation: previousWsId,
-          status: 'QUEUE',
+          id_produk: 99, // Generic part
+          kode_produk: `GEN-${String(Date.now()).slice(-6)}`, // Simple unique code
+          id_workstation: wsId,
+          status: 'WIP',
+          langkah_sekarang: 1,
           waktu_mulai: new Date(),
-        }
+        },
+        include: { produk: true },
       });
-    }
+    } else { // Logic for WS2, WS3, WS4
+      const previousWsId = `WS${wsNumber - 1}`;
 
-    // ====================================================================
-    // 7. CLAIM + INITIALIZE WORK — same atomic guarded transition as before
-    // ====================================================================
-    if (sourceLogId) {
-      const claimed = await tx.logSiklusKanban.updateMany({
-        where: { id: sourceLogId, status: sourceStatus! },
+      // Determine what product is needed from upstream.
+      // WS3 is the transformation station; it needs a generic part (99) to make a specific car.
+      // Other stations (WS2, WS4) need the same part they are being asked to build.
+      const upstreamProductId = (wsId === 'WS3') ? 99 : productToBuildId;
+
+      const availableStock = await tx.logSiklusKanban.findFirst({
+        where: { id_sesi: sessionId, id_workstation: previousWsId, status: 'DONE', id_produk: upstreamProductId },
+        orderBy: { waktu_selesai: 'asc' },
+      });
+
+      if (!availableStock) {
+        throw new BadRequestException(`Menunggu suplai produk (ID: ${upstreamProductId}) dari ${previousWsId}.`);
+      }
+
+      // Consume the queue ticket
+      await tx.logSiklusKanban.delete({ where: { id: pendingVisualQueue.id } });
+
+      // Generate a new, more specific product code if transformation is happening
+      let finalProductKode = availableStock.kode_produk;
+      if (wsId === 'WS3') {
+        const productInfo = await tx.produk.findUniqueOrThrow({ where: { id: productToBuildId } });
+        finalProductKode = `${productInfo.kode_produk}-${String(Date.now()).slice(-5)}`;
+      }
+
+      // Claim the upstream stock and move it to this station as WIP
+      const claimedStock = await tx.logSiklusKanban.updateMany({
+        where: { id: availableStock.id, status: 'DONE' },
         data: {
-          id_produk: idProduk,
-          kode_produk: kodeProduk,
+          id_produk: productToBuildId, // This applies the transformation at WS3
+          kode_produk: finalProductKode,
           id_workstation: wsId,
           status: 'WIP',
           langkah_sekarang: 1,
@@ -482,45 +686,76 @@ export class SessionsService {
           waktu_selesai: null,
         },
       });
-      if (claimed.count === 0) {
-        throw new BadRequestException('Item baru saja diambil oleh proses lain, coba lagi.');
-      }
+      if (claimedStock.count === 0) throw new BadRequestException('Komponen baru saja diambil oleh proses lain.');
 
-      if (pendingVisualQueue && pendingVisualQueue.id !== sourceLogId) {
-        await tx.logSiklusKanban.deleteMany({
-          where: { id: pendingVisualQueue.id, status: 'QUEUE' },
-        });
-      }
-    } else {
+      // Create a new pull signal (QUEUE ticket) for the upstream station
       await tx.logSiklusKanban.create({
         data: {
           id_sesi: sessionId,
-          id_produk: idProduk,
-          kode_produk: kodeProduk,
-          id_workstation: wsId,
-          status: 'WIP',
-          langkah_sekarang: 1,
+          id_produk: availableStock.id_produk, // The ID of the part we just took
+          kode_produk: 'PULL-SIGNAL',
+          id_workstation: previousWsId,
+          status: 'QUEUE',
           waktu_mulai: new Date(),
-        },
+        }
       });
+
+      // Notify the UI for a better user experience
+      this.eventsGateway.notifyWorkstation(previousWsId, { title: 'Sinyal Tarikan Diterima!', message: `Stok output Anda telah ditarik oleh ${wsId}. Anda diotorisasi untuk memulai pekerjaan baru.` });
+
+      // Set activeWip to the newly claimed item to fetch its steps
+      const productInfo = await tx.produk.findUniqueOrThrow({ where: { id: productToBuildId } });
+      activeWip = { 
+        ...availableStock, 
+        id: -1, // This is a conceptual new item
+        id_produk: productToBuildId, 
+        kode_produk: finalProductKode,
+        produk: productInfo,
+        status: 'WIP',
+        id_workstation: wsId,
+      };
     }
 
+    if (!activeWip) throw new Error('Gagal memulai pekerjaan baru.');
     const totalSteps = await tx.skenarioLangkahKerja.count({
-      where: { id_skenario: session.id_skenario, id_produk: idProduk, id_workstation: wsId }
+      where: { id_skenario: session.id_skenario, id_produk: activeWip.id_produk, id_workstation: wsId }
     });
     const stepDetails = await tx.skenarioLangkahKerja.findFirst({
-      where: { id_skenario: session.id_skenario, id_produk: idProduk, id_workstation: wsId, urutan_langkah: 1 }
+      where: { id_skenario: session.id_skenario, id_produk: activeWip.id_produk, id_workstation: wsId, urutan_langkah: 1 },
+      include: {
+        bom: {
+          include: {
+            bahan: true,
+          },
+        },
+      },
+    });
+
+    const bomForStep = stepDetails?.bom.map(b => ({
+      id_bahan: b.id_bahan,
+      nama_bahan: b.bahan.nama_bahan,
+      qty_dibutuhkan: b.qty_dibutuhkan,
+      gambar_url: b.bahan.gambar_url,
+    })) || [];
+
+    const productInfo = await tx.produk.findUniqueOrThrow({
+      where: { id: activeWip.id_produk }
     });
 
     return {
       action: 'START',
-      kode_produk: kodeProduk,
+      kode_produk: activeWip.kode_produk,
+      nama_produk: productInfo.nama_produk,
       langkah_sekarang: 1,
       total_langkah: totalSteps > 0 ? totalSteps : 1,
       deskripsi_tugas: stepDetails?.deskripsi_tugas || 'Langkah 1',
-      message: `${wsId} mulai mengerjakan ${kodeProduk}`,
+      message: `${wsId} mulai mengerjakan ${activeWip.kode_produk}`,
+      bom: bomForStep,
     };
-  });  
-    }
+  });
+
+  this.eventsGateway.broadcastKanbanUpdate();
+  return result;
+}
 
 }

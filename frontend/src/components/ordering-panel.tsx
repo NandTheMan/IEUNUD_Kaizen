@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/reui/badge';
 import { Frame, FrameDescription, FrameHeader, FramePanel, FrameTitle } from '@/components/reui/frame';
-import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   AlertCircle,
@@ -16,6 +15,7 @@ import {
   RotateCcw,
   ShoppingCartIcon,
 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 
 // ---------- Types ----------
 
@@ -232,7 +232,7 @@ export function OrderingPanel({
                   onClick={reset}
                 >
                   <RotateCcw className="h-3 w-3" />
-                  Reset
+                  Atur Ulang
                 </Button>
               )}
             </div>

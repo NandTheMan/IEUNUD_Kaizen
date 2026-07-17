@@ -7,7 +7,6 @@ import {
   FramePanel,
   FrameTitle
 } from "@/components/reui/frame"
-import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import { AlertTriangleIcon, ClockIcon, PackageIcon } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
@@ -26,6 +25,7 @@ export interface ProductionItem {
   id: number
   id_produk: number
   nama_produk: string
+  gambar_url?: string | null
   kode_produk: string
   id_workstation: string
   waktu_mulai: string
@@ -109,6 +109,61 @@ function QueueSummaryCard({ items }: { items: ProductionItem[] }) {
   )
 }
 
+// ---------- Circular progress ring ----------
+
+function CircularProgress({
+  value,
+  overtime,
+  size = 38,
+  strokeWidth = 3.5,
+}: {
+  value: number
+  overtime: boolean
+  size?: number
+  strokeWidth?: number
+}) {
+  const radius = (size - strokeWidth) / 2
+  const circumference = 2 * Math.PI * radius
+  const clamped = Math.min(100, Math.max(0, value))
+  const offset = circumference - (clamped / 100) * circumference
+
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          className="text-muted-foreground/20"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          className={cn(overtime ? "text-destructive" : "text-blue-500")}
+        />
+      </svg>
+      <span
+        className={cn(
+          "absolute inset-0 flex items-center justify-center text-[10px] font-semibold tabular-nums",
+          overtime ? "text-destructive" : "text-foreground"
+        )}
+      >
+        {Math.round(clamped)}
+      </span>
+    </div>
+  )
+}
+
 // ---------- WIP card ----------
 
 function WipCard({ item, now }: { item: ProductionItem; now: number }) {
@@ -117,19 +172,15 @@ function WipCard({ item, now }: { item: ProductionItem; now: number }) {
 
   return (
     <Frame variant="ghost" spacing="sm" className="min-w-0 flex-1 p-0">
-      <FramePanel className="flex h-full flex-col justify-center gap-1.5 p-2.5">
-        <div className="flex items-baseline justify-between gap-2">
+      <FramePanel className="flex h-full items-center gap-3 p-3">
+        <ProductThumbnail product={item} size="md" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="truncate text-sm font-medium">{item.nama_produk}</span>
           <span className="text-muted-foreground shrink-0 font-mono text-[10px]">
             {item.kode_produk}
           </span>
         </div>
-        <Progress value={progress} className="h-1.5" />
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground text-[10px] tabular-nums">
-            {Math.round(progress)}%
-          </span>
-          <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1">
             <ClockIcon
               className={cn("size-3", overtime ? "text-destructive" : "text-muted-foreground")}
             />
@@ -142,7 +193,7 @@ function WipCard({ item, now }: { item: ProductionItem; now: number }) {
               {overtime ? "Over target" : "In progress"}
             </span>
           </div>
-        </div>
+        <CircularProgress value={progress} overtime={overtime} />
       </FramePanel>
     </Frame>
   )
@@ -150,14 +201,49 @@ function WipCard({ item, now }: { item: ProductionItem; now: number }) {
 
 // ---------- Safety stock chip ----------
 
+function ProductThumbnail({
+  product,
+  size = "sm",
+}: {
+  product: { nama_produk: string; gambar_url?: string | null }
+  size?: "sm" | "md"
+}) {
+  const box = size === "md" ? "size-9" : "size-5"
+  const iconSize = size === "md" ? "size-4" : "size-3"
+
+  if (product.gambar_url) {
+    return (
+      <img
+        src={product.gambar_url}
+        alt={product.nama_produk}
+        className={cn("border-border/60 shrink-0 rounded-sm border object-cover", box)}
+      />
+    )
+  }
+  return (
+    <div
+      className={cn(
+        "bg-muted border-border/60 flex shrink-0 items-center justify-center rounded-sm border",
+        box
+      )}
+    >
+      <PackageIcon className={cn("text-muted-foreground", iconSize)} />
+    </div>
+  )
+}
+
 function SafetyStockCard({ item }: { item: ProductionItem }) {
   return (
-    <div className="border-border bg-card flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md border px-2">
-      <PackageIcon className="text-muted-foreground size-3 shrink-0" />
-      <span className="truncate text-[11px] font-medium">{item.nama_produk}</span>
-      <span className="text-muted-foreground shrink-0 truncate font-mono text-[10px]">
-        {item.kode_produk}
-      </span>
+    <div className="border-border bg-card flex h-full min-w-0 flex-1 items-center gap-2 rounded-md border px-2.5 py-2">
+      <ProductThumbnail product={item} />
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="truncate text-[11px] leading-tight font-medium">
+          {item.nama_produk}
+        </span>
+        <span className="text-muted-foreground shrink-0 truncate font-mono text-[10px] leading-tight">
+          {item.kode_produk}
+        </span>
+      </div>
     </div>
   )
 }
@@ -287,7 +373,7 @@ function WorkstationRow({
         </div>
 
         {/* Safety stock — fixed compact strip */}
-        <div className="border-border/60 bg-muted/30 flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-dashed px-2">
+        <div className="border-border/60 bg-muted/30 flex h-12 shrink-0 items-center gap-2 rounded-md border border-dashed px-2.5">
           <PackageIcon className="text-muted-foreground size-3.5 shrink-0" />
           <span className="text-muted-foreground shrink-0 text-[10px] font-semibold tracking-wide uppercase">
             Stock ({safetyStockItems.length})
@@ -295,7 +381,7 @@ function WorkstationRow({
           {safetyStockItems.length === 0 ? (
             <span className="text-muted-foreground text-xs">Empty</span>
           ) : (
-            <div className="flex h-full min-w-0 flex-1 gap-1.5">
+            <div className="flex h-full min-w-0 flex-1 gap-2">
               {visibleStock.map((item) => (
                 <SafetyStockCard key={item.id} item={item} />
               ))}
