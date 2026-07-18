@@ -202,6 +202,7 @@ model LogSiklusKanban {
   status         String    @db.VarChar(50)
   
   langkah_sekarang Int     @default(1)
+  waktu_mulai_langkah DateTime? @db.Timestamptz()
 
   sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id], onDelete: Cascade)
   produk      Produk        @relation(fields: [id_produk], references: [id])

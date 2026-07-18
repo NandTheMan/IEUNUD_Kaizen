@@ -693,7 +693,7 @@ export class SessionsService {
         const nextStepNum = activeWip.langkah_sekarang + 1;
         const advanced = await tx.logSiklusKanban.updateMany({
           where: { id: activeWip.id, langkah_sekarang: activeWip.langkah_sekarang },
-          data: { langkah_sekarang: nextStepNum },
+          data: { langkah_sekarang: nextStepNum, waktu_mulai_langkah: new Date() },
         });
         if (advanced.count === 0) {
           throw new BadRequestException('Langkah sudah diperbarui oleh proses lain, coba lagi.');
@@ -726,6 +726,7 @@ export class SessionsService {
           deskripsi_tugas: stepDetails?.deskripsi_tugas || `Langkah ${nextStepNum}`,
           message: `Lanjut ke langkah ${nextStepNum}/${maxSteps}`,
           bom: bomForStep,
+          standard_time_detik: stepDetails?.standard_time_detik || 0,
         };
       } else {
         const finished = await tx.logSiklusKanban.updateMany({
@@ -778,6 +779,7 @@ export class SessionsService {
           status: 'WIP',
           langkah_sekarang: 1,
           waktu_mulai: new Date(),
+          waktu_mulai_langkah: new Date(),
         },
         include: { produk: true },
       });
@@ -818,6 +820,7 @@ export class SessionsService {
           status: 'WIP',
           langkah_sekarang: 1,
           waktu_mulai: new Date(),
+          waktu_mulai_langkah: new Date(),
           waktu_selesai: null,
         },
       });
@@ -886,6 +889,7 @@ export class SessionsService {
       deskripsi_tugas: stepDetails?.deskripsi_tugas || 'Langkah 1',
       message: `${wsId} mulai mengerjakan ${activeWip.kode_produk}`,
       bom: bomForStep,
+      standard_time_detik: stepDetails?.standard_time_detik || 0,
     };
   });
 
@@ -894,4 +898,65 @@ export class SessionsService {
   return result;
 }
 
+  async getWorkstationStatus(sessionId: number, wsId: string) {
+    const session = await this.prisma.sesiPraktikum.findUnique({
+      where: { id: sessionId, status: 'ACTIVE' },
+    });
+
+    if (!session) {
+      throw new NotFoundException('Sesi aktif tidak ditemukan.');
+    }
+
+    const activeWip = await this.prisma.logSiklusKanban.findFirst({
+      where: { id_sesi: sessionId, id_workstation: wsId, status: 'WIP' },
+      include: { produk: true },
+    });
+
+    if (!activeWip) {
+      // Tidak ada pekerjaan aktif, stasiun dalam keadaan idle atau memiliki barang jadi.
+      const doneItem = await this.prisma.logSiklusKanban.findFirst({
+        where: { id_sesi: sessionId, id_workstation: wsId, status: 'DONE' },
+      });
+      return {
+        status: doneItem ? 'DONE' : 'IDLE',
+        message: doneItem ? 'Menunggu penarikan oleh stasiun berikutnya' : 'Siap untuk menarik pekerjaan baru',
+      };
+    }
+
+    // Ada item WIP, hitung statusnya.
+    const totalSteps = await this.prisma.skenarioLangkahKerja.count({
+      where: { id_skenario: session.id_skenario, id_produk: activeWip.id_produk, id_workstation: wsId }
+    });
+    const maxSteps = totalSteps > 0 ? totalSteps : 1;
+
+    const stepDetails = await this.prisma.skenarioLangkahKerja.findFirst({
+      where: {
+        id_skenario: session.id_skenario,
+        id_produk: activeWip.id_produk,
+        id_workstation: wsId,
+        urutan_langkah: activeWip.langkah_sekarang,
+      },
+    });
+
+    const idealTimeForStep = stepDetails?.standard_time_detik || 0;
+    let remainingTime = idealTimeForStep; // Default ke waktu penuh
+
+    // Perhitungan ini sekarang akurat untuk SEMUA langkah, berkat field baru.
+    if (activeWip.waktu_mulai_langkah) {
+      const elapsedTimeMs = Date.now() - activeWip.waktu_mulai_langkah.getTime();
+      const elapsedTimeSec = Math.floor(elapsedTimeMs / 1000);
+      remainingTime = Math.max(0, idealTimeForStep - elapsedTimeSec);
+    }
+
+    return {
+      status: 'WIP',
+      kode_produk: activeWip.kode_produk,
+      nama_produk: activeWip.produk.nama_produk,
+      langkah_sekarang: activeWip.langkah_sekarang,
+      total_langkah: maxSteps,
+      deskripsi_tugas: stepDetails?.deskripsi_tugas || `Langkah ${activeWip.langkah_sekarang}`,
+      standard_time_detik: idealTimeForStep,
+      remaining_time_detik: remainingTime,
+    };
+  }
 }
