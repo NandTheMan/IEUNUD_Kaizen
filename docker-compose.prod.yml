@@ -1,0 +1,71 @@
+name: ie-unud-kaizen-prod
+
+services:
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: kaizen-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    networks:
+      - kaizen-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    # No "ports:" here on purpose — the database is only reachable by
+    # other containers on kaizen-network, never from the LAN or host.
+
+  backend:
+    container_name: kaizen-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres-db:5432/${DB_NAME}?schema=public
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    networks:
+      - kaizen-network
+    # No "ports:" either — only nginx talks to this, via the internal network.
+
+  frontend:
+    container_name: kaizen-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: /api
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - kaizen-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: kaizen-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"   # <-- the ONLY port this whole stack exposes to the LAN
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - kaizen-network
+
+volumes:
+  postgres_data_prod:
+
+networks:
+  kaizen-network:
+    driver: bridge
