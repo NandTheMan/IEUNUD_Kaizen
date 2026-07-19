@@ -2,7 +2,7 @@
 cd /d "%~dp0"
 
 echo Starting Kaizen system... this can take a minute the first time.
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build --force-recreate
 
 echo.
 echo Done. On THIS PC, find the IP address by running "ipconfig" in a
