@@ -110,13 +110,18 @@ export class SessionsService {
       throw new NotFoundException('No active session to stop.');
     }
 
-    return this.prisma.sesiPraktikum.update({
+    const updatedSession = await this.prisma.sesiPraktikum.update({
       where: { id: activeSession.id },
       data: {
         status: 'COMPLETED',
         waktu_selesai: new Date(),
       },
     });
+
+    this.eventsGateway.broadcastSessionFinished(updatedSession.id);
+    this.eventsGateway.broadcastKanbanUpdate();
+
+    return updatedSession;
   }
 
   async getKanbanBoardState(sessionId: number) {
@@ -158,8 +163,8 @@ export class SessionsService {
       waktu_mulai: item.waktu_mulai.toISOString(),
       waktu_selesai: item.waktu_selesai ? item.waktu_selesai.toISOString() : null,
       status: item.status,
-      // Note: standard_time_detik requires joining SkenarioLangkahKerja if you want it dynamic!
-      standard_time_detik: 120,
+      // Note: total_waktu_standar_detik requires joining SkenarioLangkahKerja if you want it dynamic!
+      total_waktu_standar_detik: 120,
     }));
 
     // 4. Fetch the Heijunka Queue
@@ -597,6 +602,49 @@ export class SessionsService {
     return result;
   }
 
+  async getSessionSummary(sessionId: number) {
+    const session = await this.prisma.sesiPraktikum.findUniqueOrThrow({
+        where: { id: sessionId },
+    });
+
+    const shippedCount = await this.prisma.antrianHeijunka.groupBy({
+        by: ['id_produk'],
+        where: { id_sesi: sessionId, status: 'SHIPPED' },
+        _count: { id_produk: true },
+    });
+
+    const ngCount = await this.prisma.logProdukNG.groupBy({
+        by: ['id_produk'],
+        where: { id_sesi: sessionId },
+        _count: { id_produk: true },
+    });
+
+    const productIds = [...new Set([...shippedCount.map(s => s.id_produk), ...ngCount.map(n => n.id_produk)])];
+    const products = await this.prisma.produk.findMany({
+        where: { id: { in: productIds } }
+    });
+
+    const productionResults = products.map(p => ({
+        id_produk: p.id,
+        nama_produk: p.nama_produk,
+        qty_shipped: shippedCount.find(s => s.id_produk === p.id)?._count.id_produk || 0,
+        qty_ng: ngCount.find(n => n.id_produk === p.id)?._count.id_produk || 0,
+    })).filter(r => r.qty_shipped > 0 || r.qty_ng > 0);
+
+    const totalAndon = await this.prisma.logAndon.count({ where: { id_sesi: sessionId } });
+    const totalLogistik = await this.prisma.logLogistik.count({ where: { id_sesi: sessionId } });
+
+    const durationMs = session.waktu_selesai ? session.waktu_selesai.getTime() - session.waktu_mulai.getTime() : 0;
+
+    return {
+        sessionId: session.id,
+        duration_minutes: Math.round(durationMs / 60000),
+        production_results: productionResults,
+        total_andon_alerts: totalAndon,
+        total_logistics_requests: totalLogistik,
+    };
+  }
+
   /**
    * Toggles the given workstation forward one step: advances an in-progress
    * item to its next step, finishes it, or pulls a new item to start work on.
@@ -693,7 +741,7 @@ export class SessionsService {
         const nextStepNum = activeWip.langkah_sekarang + 1;
         const advanced = await tx.logSiklusKanban.updateMany({
           where: { id: activeWip.id, langkah_sekarang: activeWip.langkah_sekarang },
-          data: { langkah_sekarang: nextStepNum, waktu_mulai_langkah: new Date() },
+          data: { langkah_sekarang: nextStepNum },
         });
         if (advanced.count === 0) {
           throw new BadRequestException('Langkah sudah diperbarui oleh proses lain, coba lagi.');
@@ -717,6 +765,14 @@ export class SessionsService {
           gambar_url: b.bahan.gambar_url,
         })) || [];
 
+        // Get the total standard time for the whole process at this workstation
+        const processInfo = await tx.skenarioWorkstationProduk.findUnique({
+          where: {
+            id_skenario_id_workstation_id_produk: { id_skenario: session.id_skenario, id_workstation: wsId, id_produk: activeWip.id_produk }
+          }
+        });
+        const totalStandardTime = processInfo?.total_waktu_standar_detik || 0;
+
         return {
           action: 'NEXT',
           kode_produk: activeWip.kode_produk,
@@ -726,7 +782,7 @@ export class SessionsService {
           deskripsi_tugas: stepDetails?.deskripsi_tugas || `Langkah ${nextStepNum}`,
           message: `Lanjut ke langkah ${nextStepNum}/${maxSteps}`,
           bom: bomForStep,
-          standard_time_detik: stepDetails?.standard_time_detik || 0,
+          standard_time_detik: totalStandardTime,
         };
       } else {
         const finished = await tx.logSiklusKanban.updateMany({
@@ -779,7 +835,6 @@ export class SessionsService {
           status: 'WIP',
           langkah_sekarang: 1,
           waktu_mulai: new Date(),
-          waktu_mulai_langkah: new Date(),
         },
         include: { produk: true },
       });
@@ -820,7 +875,6 @@ export class SessionsService {
           status: 'WIP',
           langkah_sekarang: 1,
           waktu_mulai: new Date(),
-          waktu_mulai_langkah: new Date(),
           waktu_selesai: null,
         },
       });
@@ -880,6 +934,14 @@ export class SessionsService {
       where: { id: activeWip.id_produk }
     });
 
+    // Get the total standard time for the whole process at this workstation
+    const processInfo = await tx.skenarioWorkstationProduk.findUnique({
+      where: {
+        id_skenario_id_workstation_id_produk: { id_skenario: session.id_skenario, id_workstation: wsId, id_produk: activeWip.id_produk }
+      }
+    });
+    const totalStandardTime = processInfo?.total_waktu_standar_detik || 0;
+
     return {
       action: 'START',
       kode_produk: activeWip.kode_produk,
@@ -889,7 +951,7 @@ export class SessionsService {
       deskripsi_tugas: stepDetails?.deskripsi_tugas || 'Langkah 1',
       message: `${wsId} mulai mengerjakan ${activeWip.kode_produk}`,
       bom: bomForStep,
-      standard_time_detik: stepDetails?.standard_time_detik || 0,
+      standard_time_detik: totalStandardTime,
     };
   });
 
@@ -903,64 +965,76 @@ export class SessionsService {
 }
 
   async getWorkstationStatus(sessionId: number, wsId: string) {
-    const session = await this.prisma.sesiPraktikum.findUnique({
-      where: { id: sessionId, status: 'ACTIVE' },
-    });
+  // Most recent item currently sitting at this workstation: either being
+  // worked on (WIP) or finished and waiting to be pulled by the next station (DONE).
+  const current = await this.prisma.logSiklusKanban.findFirst({
+    where: {
+      id_sesi: sessionId,
+      id_workstation: wsId,
+      status: { in: ['WIP', 'DONE'] },
+    },
+    orderBy: { waktu_mulai: 'desc' },
+    include: { produk: true },
+  });
 
-    if (!session) {
-      throw new NotFoundException('Sesi aktif tidak ditemukan.');
-    }
+  if (!current) {
+    return { status: 'IDLE', message: 'Menunggu sinyal tarikan dari stasiun berikutnya...' };
+  }
 
-    const activeWip = await this.prisma.logSiklusKanban.findFirst({
-      where: { id_sesi: sessionId, id_workstation: wsId, status: 'WIP' },
-      include: { produk: true },
-    });
-
-    if (!activeWip) {
-      // Tidak ada pekerjaan aktif, stasiun dalam keadaan idle atau memiliki barang jadi.
-      const doneItem = await this.prisma.logSiklusKanban.findFirst({
-        where: { id_sesi: sessionId, id_workstation: wsId, status: 'DONE' },
-      });
-      return {
-        status: doneItem ? 'DONE' : 'IDLE',
-        message: doneItem ? 'Menunggu penarikan oleh stasiun berikutnya' : 'Siap untuk menarik pekerjaan baru',
-      };
-    }
-
-    // Ada item WIP, hitung statusnya.
-    const totalSteps = await this.prisma.skenarioLangkahKerja.count({
-      where: { id_skenario: session.id_skenario, id_produk: activeWip.id_produk, id_workstation: wsId }
-    });
-    const maxSteps = totalSteps > 0 ? totalSteps : 1;
-
-    const stepDetails = await this.prisma.skenarioLangkahKerja.findFirst({
-      where: {
-        id_skenario: session.id_skenario,
-        id_produk: activeWip.id_produk,
-        id_workstation: wsId,
-        urutan_langkah: activeWip.langkah_sekarang,
-      },
-    });
-
-    const idealTimeForStep = stepDetails?.standard_time_detik || 0;
-    let remainingTime = idealTimeForStep; // Default ke waktu penuh
-
-    // Perhitungan ini sekarang akurat untuk SEMUA langkah, berkat field baru.
-    if (activeWip.waktu_mulai_langkah) {
-      const elapsedTimeMs = Date.now() - activeWip.waktu_mulai_langkah.getTime();
-      const elapsedTimeSec = Math.floor(elapsedTimeMs / 1000);
-      remainingTime = Math.max(0, idealTimeForStep - elapsedTimeSec);
-    }
-
+  if (current.status === 'DONE') {
     return {
-      status: 'WIP',
-      kode_produk: activeWip.kode_produk,
-      nama_produk: activeWip.produk.nama_produk,
-      langkah_sekarang: activeWip.langkah_sekarang,
-      total_langkah: maxSteps,
-      deskripsi_tugas: stepDetails?.deskripsi_tugas || `Langkah ${activeWip.langkah_sekarang}`,
-      standard_time_detik: idealTimeForStep,
-      remaining_time_detik: remainingTime,
+      status: 'DONE',
+      kode_produk: current.kode_produk,
+      nama_produk: current.produk.nama_produk,
+      message: `${current.kode_produk} selesai. Barang siap ditarik stasiun berikutnya.`,
     };
   }
-}
+
+  // status === 'WIP'
+  const session = await this.prisma.sesiPraktikum.findUniqueOrThrow({ where: { id: sessionId } });
+
+  const [totalSteps, stepDetails, processInfo] = await Promise.all([
+    this.prisma.skenarioLangkahKerja.count({
+      where: { id_skenario: session.id_skenario, id_produk: current.id_produk, id_workstation: wsId },
+    }),
+    this.prisma.skenarioLangkahKerja.findFirst({
+      where: {
+        id_skenario: session.id_skenario,
+        id_produk: current.id_produk,
+        id_workstation: wsId,
+        urutan_langkah: current.langkah_sekarang,
+      },
+      include: { bom: { include: { bahan: true } } },
+    }),
+    this.prisma.skenarioWorkstationProduk.findUnique({
+      where: {
+        id_skenario_id_workstation_id_produk: { id_skenario: session.id_skenario, id_workstation: wsId, id_produk: current.id_produk }
+      }
+    })
+  ]);
+
+  const standardTime = processInfo?.total_waktu_standar_detik ?? 0;
+  const elapsed = current.waktu_mulai
+    ? Math.floor((Date.now() - current.waktu_mulai.getTime()) / 1000)
+    : 0;
+  const remaining = Math.max(standardTime - elapsed, 0);
+
+  const bom = stepDetails?.bom.map((b) => ({
+    id_bahan: b.id_bahan,
+    nama_bahan: b.bahan.nama_bahan,
+    qty_dibutuhkan: b.qty_dibutuhkan,
+    gambar_url: b.bahan.gambar_url,
+  })) ?? [];
+
+  return {
+    status: 'WIP',
+    kode_produk: current.kode_produk,
+    nama_produk: current.produk.nama_produk,
+    langkah_sekarang: current.langkah_sekarang,
+    total_langkah: totalSteps > 0 ? totalSteps : 1,
+    deskripsi_tugas: stepDetails?.deskripsi_tugas ?? `Langkah ${current.langkah_sekarang}`,
+    waktu_standar_detik: standardTime,
+    remaining_time_detik: remaining,
+    bom,
+  };
+}}

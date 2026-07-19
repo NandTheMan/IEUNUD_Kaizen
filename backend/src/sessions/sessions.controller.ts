@@ -56,12 +56,25 @@ export class SessionsController {
         return this.sessionsService.getAndonAlerts(id);
     }
 
+    @Get(':id/summary')
+    async getSessionSummary(@Param('id', ParseIntPipe) id: number) {
+        return this.sessionsService.getSessionSummary(id);
+    }
+
     @Get(':id/workstations/:wsId/stock')
     async getWorkstationStock(
         @Param('id', ParseIntPipe) sessionId: number,
         @Param('wsId') wsId: string,
     ) {
         return this.sessionsService.getWorkstationStock(sessionId, wsId);
+    }
+
+    @Get(':id/workstations/:wsId/status')
+    async getWorkstationStatus(
+    @Param('id', ParseIntPipe) sessionId: number,
+    @Param('wsId') wsId: string,
+    ) {
+    return this.sessionsService.getWorkstationStatus(sessionId, wsId);
     }
 
     @Post(':id/orders')

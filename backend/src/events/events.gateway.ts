@@ -54,6 +54,14 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
+   * Broadcasts that a session has finished and summary is available.
+   * @param sessionId The ID of the finished session.
+   */
+  broadcastSessionFinished(sessionId: number) {
+    this.server.emit('session_finished', { sessionId });
+  }
+
+  /**
    * Broadcasts a generic update to all clients that the kanban state has changed.
    * This is the primary trigger for most UI refreshes.
    */
