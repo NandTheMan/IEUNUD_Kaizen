@@ -1,3 +1,5 @@
+// warehouse.tsx
+
 'use client';
 
 import { GlobalStatusBar } from '@/components/global-status-bar';
@@ -142,7 +144,7 @@ export default function WarehousePage() {
             stockData.map(ws => (
               <Frame key={ws.id} stacked className="flex h-full min-h-0 flex-col">
                 <FrameHeader><FrameTitle>{ws.nama_ws} ({ws.id})</FrameTitle></FrameHeader>
-                <FramePanel className="flex-1 overflow-y-auto">
+                <FramePanel className="flex-1 overflow-y-auto p-3">
                   <div className="grid grid-cols-2 gap-3">
                     {ws.materials.map(mat => (<MaterialCard key={mat.id_bahan} nama={mat.nama_bahan} gambarUrl={mat.gambar_url} stok={mat.stok_sekarang}/>))}
                   </div>
@@ -167,18 +169,24 @@ export default function WarehousePage() {
 
                 if (isActionable) {
                   return (
-                    <div key={alert.id} className="rounded-lg border-2 border-amber-500 bg-amber-500/10 p-3 shadow-md">
-                      <div className="flex items-center justify-between"><p className="font-bold text-amber-600">WS: {alert.id_workstation}</p><p className="text-xs text-muted-foreground">{new Date(alert.waktu_diminta).toLocaleTimeString()}</p></div>
+                    <div key={alert.id} className="rounded-lg border-2 border-amber-500/70 bg-amber-500/10 p-4 shadow-sm transition-all">
+                      <div className="flex items-center justify-between"><p className="flex items-center gap-1.5 font-bold text-amber-600"><AlertTriangle className="h-4 w-4" />WS: {alert.id_workstation}</p><p className="text-xs text-muted-foreground">{new Date(alert.waktu_diminta).toLocaleTimeString()}</p></div>
                       <p className="mt-1 text-sm font-semibold">{alert.bahan.nama_bahan}</p>
                       <p className="font-mono text-xs text-muted-foreground">Qty Diminta: {alert.qty_diminta}</p>
-                      <Button className="mt-3 w-full" size="sm" onClick={() => handleFulfillRequest(alert.id)} disabled={isBeingFulfilled}>
+                      <Button className="mt-4 w-full" size="sm" onClick={() => handleFulfillRequest(alert.id)} disabled={isBeingFulfilled}>
                         {isBeingFulfilled ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
                         Kirim Material
                       </Button>
                     </div>
                   );
                 }
-                return (<div key={alert.id} className="rounded-lg border border-gray-500/20 bg-gray-500/10 p-3 opacity-60"><div className="flex items-center justify-between"><p className="font-bold text-gray-400">WS: {alert.id_workstation}</p><p className="text-xs text-muted-foreground">{new Date(alert.waktu_diminta).toLocaleTimeString()}</p></div><p className="mt-1 text-sm font-semibold">{alert.bahan.nama_bahan}</p><p className="font-mono text-xs text-muted-foreground">Qty Diminta: {alert.qty_diminta}</p></div>);
+                return (
+                  <div key={alert.id} className="rounded-lg border bg-card p-3 shadow-sm" style={{ opacity: Math.max(1 - index * 0.2, 0.4) }}>
+                    <div className="flex items-center justify-between"><p className="text-sm font-semibold">WS: {alert.id_workstation}</p><p className="text-xs text-muted-foreground">{new Date(alert.waktu_diminta).toLocaleTimeString()}</p></div>
+                    <p className="mt-1 truncate text-sm text-muted-foreground">{alert.bahan.nama_bahan}</p>
+                    <p className="font-mono text-xs text-muted-foreground">Qty: {alert.qty_diminta}</p>
+                  </div>
+                );
               })
             )}
           </FramePanel>

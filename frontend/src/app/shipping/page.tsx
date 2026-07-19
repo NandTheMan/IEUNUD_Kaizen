@@ -1,3 +1,5 @@
+// shipping.tsx
+
 'use client';
 
 import { HeijunkaQueueItem, HeijunkaQueueList, ProductionItem } from '@/components/examples/c-kanban-5';

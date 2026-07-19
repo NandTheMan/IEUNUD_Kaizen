@@ -1,3 +1,5 @@
+// supervisor.tsx
+
 'use client';
 
 import { HeijunkaQueueItem, HeijunkaQueueList, ProductionKanban } from '@/components/examples/c-kanban-5';
@@ -71,7 +73,7 @@ function AndonAlertsPanel() {
         </FrameTitle>
         <FrameDescription>Laporan masalah dari lini produksi.</FrameDescription>
       </FrameHeader>
-      <FramePanel className="flex flex-col gap-3 overflow-y-auto">
+      <FramePanel className="flex flex-col gap-3 overflow-y-auto p-3">
         {alerts.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
             <CheckCircle2 className="h-8 w-8" />
@@ -83,28 +85,24 @@ function AndonAlertsPanel() {
             if (index === 0) {
               // Top, highlighted alert
               return (
-                <div key={alert.id} className="rounded-lg border-2 border-destructive bg-destructive/10 p-4 shadow-lg">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-destructive">
-                        <AlertTriangle className="h-5 w-5 text-destructive-foreground" />
-                      </div>
-                      <div>
-                        <p className="font-bold text-destructive">WS: {alert.id_workstation}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(alert.waktu_lapor).toLocaleTimeString()}
-                        </p>
-                      </div>
-                    </div>
+                <div key={alert.id} className="rounded-lg border-2 border-destructive/70 bg-destructive/10 p-4 shadow-sm transition-all">
+                  <div className="flex items-center justify-between">
+                    <p className="flex items-center gap-1.5 font-bold text-destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      WS: {alert.id_workstation}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(alert.waktu_lapor).toLocaleTimeString()}
+                    </p>
                   </div>
                   <p className="mt-3 text-lg font-semibold">{alert.jenis_gangguan}</p>
-                  <Button className="mt-4 w-full" onClick={() => openResolveDialog(alert)}>Konfirmasi & Atasi</Button>
+                  <Button className="mt-4 w-full" size="sm" variant="destructive" onClick={() => openResolveDialog(alert)}>Konfirmasi & Atasi</Button>
                 </div>
               );
             } else {
               // Subsequent, smaller alerts
               return (
-                <div key={alert.id} className="rounded-lg border bg-card p-3" style={{ opacity: 1 - index * 0.25 }}>
+                <div key={alert.id} className="rounded-lg border bg-card p-3 shadow-sm" style={{ opacity: Math.max(1 - index * 0.2, 0.4) }}>
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-semibold">WS: {alert.id_workstation}</p>
                     <p className="text-xs text-muted-foreground">

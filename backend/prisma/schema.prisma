@@ -122,6 +122,7 @@ model BomLangkah {
   id_langkah     Int
   id_bahan       Int
   qty_dibutuhkan Int
+  safety_stock   Int? // 👈 ADDED: ambang batas stok aman untuk bahan ini pada langkah/produk ini (ref. BoM Book1.pdf)
 
   langkah SkenarioLangkahKerja @relation(fields: [id_langkah], references: [id])
   bahan   Bahan                @relation(fields: [id_bahan], references: [id])
