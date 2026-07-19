@@ -893,7 +893,11 @@ export class SessionsService {
     };
   });
 
+  // Menyiarkan pembaruan umum untuk dasbor overview seperti papan Kanban utama.
   this.eventsGateway.broadcastKanbanUpdate();
+  // Menyiarkan pembaruan spesifik ke stasiun kerja yang di-toggle.
+  this.eventsGateway.broadcastWorkstationStateUpdate(wsId);
+  // Pembaruan stok rendah disiarkan dari dalam logika transaksi
   // Low stock updates are broadcast from within the transaction logic
   return result;
 }

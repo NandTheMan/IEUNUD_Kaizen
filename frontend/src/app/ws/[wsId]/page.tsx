@@ -87,26 +87,31 @@ export default function WorkstationPage() {
 
   // WebSocket room and notification handling
   useEffect(() => {
-    if (!socket || !wsId) return;
+  if (!socket || !wsId) return;
 
-    socket.emit('join_workstation_room', wsId);
-    const handleNotification = (data: { title: string; message: string }) => {
-      setNotification(data);
-    };
-    const handleKanbanUpdate = () => {
-      fetchBoardData();
-      fetchStock();
-    };
+  socket.emit('join_workstation_room', wsId);
+  const handleNotification = (data: { title: string; message: string }) => {
+    setNotification(data);
+  };
+  const handleKanbanUpdate = () => {
+    fetchBoardData();
+    fetchStock();
+  };
+  const handleStateUpdated = () => {
+    window.location.reload();
+  };
 
-    socket.on('WORKSTATION_NOTIFICATION', handleNotification);
-    socket.on('kanban_updated', handleKanbanUpdate);
+  socket.on('WORKSTATION_NOTIFICATION', handleNotification);
+  socket.on('kanban_updated', handleKanbanUpdate);
+  socket.on('workstation_state_updated', handleStateUpdated); // 👈 added
 
-    return () => {
-      socket.emit('leave_workstation_room', wsId);
-      socket.off('WORKSTATION_NOTIFICATION', handleNotification);
-      socket.off('kanban_updated', handleKanbanUpdate);
-    };
-  }, [socket, wsId, fetchBoardData, fetchStock]);
+  return () => {
+    socket.emit('leave_workstation_room', wsId);
+    socket.off('WORKSTATION_NOTIFICATION', handleNotification);
+    socket.off('kanban_updated', handleKanbanUpdate);
+    socket.off('workstation_state_updated', handleStateUpdated); // 👈 added
+  };
+}, [socket, wsId, fetchBoardData, fetchStock]);
 
   const handleToggle = useCallback(async () => {
     if (!activeSessionId || isLoading) return;
