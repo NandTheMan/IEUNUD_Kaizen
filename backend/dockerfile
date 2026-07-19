@@ -28,4 +28,4 @@ EXPOSE 3001
 # Apply any pending DB migrations, then start the server.
 # This means whoever runs this container never has to type a prisma
 # command by hand — new migrations you write just get applied on next restart.
-CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && pnpm run start:prod"]
+CMD ["sh", "-c", "npx prisma migrate deploy && pnpm run start:prod:docker"]

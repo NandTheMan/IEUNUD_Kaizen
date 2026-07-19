@@ -2,7 +2,7 @@
 cd /d "%~dp0"
 
 echo Starting Kaizen system... this can take a minute the first time.
-docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build --force-recreate
+docker compose -f docker-compose.prod.yml up -d --build --force-recreate
 docker exec kaizen-nginx nginx -s reload
 
 echo.
