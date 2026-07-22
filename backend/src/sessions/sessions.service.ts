@@ -72,19 +72,29 @@ export class SessionsService {
 
       // 3. Hardcode the initial product-in-progress and pull signal stock for a predictable start state.
       const safetyStockToInsert = [
-          // WS1 is stocked with two generic parts, tagged for their final products
-          { id_sesi: newSession.id, id_produk: 99, kode_produk: 'F/A-001-001', id_workstation: 'WS1', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() }, // Tagged for a PickUp
-          { id_sesi: newSession.id, id_produk: 99, kode_produk: 'A-002-001', id_workstation: 'WS1', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },   // Tagged for a D-Cab
-          { id_sesi: newSession.id, id_produk: 99, kode_produk: 'F/A-003-001', id_workstation: 'WS2', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
-          { id_sesi: newSession.id, id_produk: 99, kode_produk: 'F/A-001-002', id_workstation: 'WS2', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
-          // WS3 has finished products, ready for WS4. Note the id_produk has changed from 99.
-          { id_sesi: newSession.id, id_produk: 1, kode_produk: 'F/A-001-002', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
-          { id_sesi: newSession.id, id_produk: 2, kode_produk: 'A-002-002', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() }, // A finished D-Cab
-          { id_sesi: newSession.id, id_produk: 3, kode_produk: 'F/A-003-002', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() }, // A finished MPV
-          // Create initial pull signals for WS4 to start the process, representing empty slots in its supermarket.
-          { id_sesi: newSession.id, id_produk: 1, kode_produk: 'PULL-SIGNAL', id_workstation: 'WS4', status: 'QUEUE', langkah_sekarang: 1, waktu_mulai: new Date() },
-          { id_sesi: newSession.id, id_produk: 2, kode_produk: 'PULL-SIGNAL', id_workstation: 'WS4', status: 'QUEUE', langkah_sekarang: 1, waktu_mulai: new Date() },
-          { id_sesi: newSession.id, id_produk: 3, kode_produk: 'PULL-SIGNAL', id_workstation: 'WS4', status: 'QUEUE', langkah_sekarang: 1, waktu_mulai: new Date() },
+          // WS1 has finished generic parts, ready for WS2
+          { id_sesi: newSession.id, id_produk: 99, kode_produk: 'GEN-001', id_workstation: 'WS1', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          { id_sesi: newSession.id, id_produk: 99, kode_produk: 'GEN-002', id_workstation: 'WS1', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          
+          // WS2 has finished rolling chassis, ready for WS3
+          { id_sesi: newSession.id, id_produk: 99, kode_produk: 'GEN-003', id_workstation: 'WS2', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          { id_sesi: newSession.id, id_produk: 99, kode_produk: 'GEN-004', id_workstation: 'WS2', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          
+          // WS3 has 2 of each finished product, ready for WS4
+          { id_sesi: newSession.id, id_produk: 1, kode_produk: 'F/A-001-001', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          // { id_sesi: newSession.id, id_produk: 1, kode_produk: 'F/A-001-002', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          { id_sesi: newSession.id, id_produk: 2, kode_produk: 'A-002-001', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          // { id_sesi: newSession.id, id_produk: 2, kode_produk: 'A-002-002', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          { id_sesi: newSession.id, id_produk: 3, kode_produk: 'F/A-003-001', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          // { id_sesi: newSession.id, id_produk: 3, kode_produk: 'F/A-003-002', id_workstation: 'WS3', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+
+          // WS4 also has 2 of each finished product, representing the final supermarket stock
+          { id_sesi: newSession.id, id_produk: 1, kode_produk: 'F/A-001-003', id_workstation: 'WS4', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          // { id_sesi: newSession.id, id_produk: 1, kode_produk: 'F/A-001-004', id_workstation: 'WS4', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          { id_sesi: newSession.id, id_produk: 2, kode_produk: 'A-002-003', id_workstation: 'WS4', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          // { id_sesi: newSession.id, id_produk: 2, kode_produk: 'A-002-004', id_workstation: 'WS4', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          { id_sesi: newSession.id, id_produk: 3, kode_produk: 'F/A-003-003', id_workstation: 'WS4', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
+          // { id_sesi: newSession.id, id_produk: 3, kode_produk: 'F/A-003-004', id_workstation: 'WS4', status: 'DONE', langkah_sekarang: 1, waktu_mulai: new Date(), waktu_selesai: new Date() },
       ];
       await tx.logSiklusKanban.createMany({ data: safetyStockToInsert });
     });
@@ -423,6 +433,21 @@ export class SessionsService {
           target_qty: pendingCounts[id],
           base_code: products.find(p => p.id === id)?.kode_produk || 'UNK'
         };
+      });
+
+      // Define the production priority: PickUp (1) -> MPV (3) -> D-Cab (2)
+      const priorityOrder = [1, 3, 2];
+
+      // Sort the items to be sequenced based on the defined priority
+      remainingToSequence.sort((a, b) => {
+        const priorityA = priorityOrder.indexOf(a.id_produk);
+        const priorityB = priorityOrder.indexOf(b.id_produk);
+        
+        // If a product is not in the priority list, it gets lowest priority
+        if (priorityA === -1) return 1;
+        if (priorityB === -1) return -1;
+
+        return priorityA - priorityB;
       });
 
       // 5. DELETE the old un-released queue (we are rewriting the future!)
@@ -782,6 +807,7 @@ export class SessionsService {
           deskripsi_tugas: stepDetails?.deskripsi_tugas || `Langkah ${nextStepNum}`,
           message: `Lanjut ke langkah ${nextStepNum}/${maxSteps}`,
           bom: bomForStep,
+          gambar_utama_url: stepDetails?.gambar_utama_url,
           standard_time_detik: totalStandardTime,
         };
       } else {
@@ -951,6 +977,7 @@ export class SessionsService {
       deskripsi_tugas: stepDetails?.deskripsi_tugas || 'Langkah 1',
       message: `${wsId} mulai mengerjakan ${activeWip.kode_produk}`,
       bom: bomForStep,
+      gambar_utama_url: stepDetails?.gambar_utama_url,
       standard_time_detik: totalStandardTime,
     };
   });
@@ -1035,6 +1062,7 @@ export class SessionsService {
     deskripsi_tugas: stepDetails?.deskripsi_tugas ?? `Langkah ${current.langkah_sekarang}`,
     waktu_standar_detik: standardTime,
     remaining_time_detik: remaining,
+    gambar_utama_url: stepDetails?.gambar_utama_url,
     bom,
   };
 }}

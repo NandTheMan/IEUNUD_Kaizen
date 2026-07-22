@@ -48,8 +48,8 @@ async function main() {
   const prodGeneric = await prisma.produk.create({ data: { id: 99, kode_produk: 'GENERIC', nama_produk: 'Generic Rolling Chassis' } });
 
   const prodPickUp = await prisma.produk.create({ data: { id: 1, kode_produk: 'F/A-001', nama_produk: 'Mobil Pick Up' } });
-  const prodDCab = await prisma.produk.create({ data: { id: 2, kode_produk: 'A-002', nama_produk: 'Mobil D-CAB' } });
-  const prodMPV = await prisma.produk.create({ data: { id: 3, kode_produk: 'F/A-003', nama_produk: 'Mobil MPV' } });
+  const prodDCab = await prisma.produk.create({ data: { id: 2, kode_produk: 'F/A-003', nama_produk: 'Mobil D-CAB' } });
+  const prodMPV = await prisma.produk.create({ data: { id: 3, kode_produk: 'A-002', nama_produk: 'Mobil MPV' } });
 
   // 4. MASTER DATA - Workstations
   await prisma.workstation.createMany({
@@ -200,6 +200,84 @@ async function main() {
 
       // WS4: Quality Inspection - tidak ada konsumsi material (inspeksi visual/fungsional)
     ],
+  });
+
+  // =======================================================================
+  // SCENARIO 2: CONSOLIDATED STEPS
+  // =======================================================================
+  console.log('Seeding Scenario 2: Consolidated Work Steps...');
+
+  const scenario2 = await prisma.skenarioGame.create({
+    data: {
+      nama_skenario: 'Simulasi Lini Produksi (Langkah Kerja Terkonsolidasi)',
+      deskripsi: 'Skenario Kanban Pull System dengan langkah kerja yang digabung per stasiun.',
+    },
+  });
+
+  await prisma.skenarioWorkstation.createMany({
+    data: [
+      { id_skenario: scenario2.id, id_workstation: 'WS1', is_pacemaker: true },
+      { id_skenario: scenario2.id, id_workstation: 'WS2', is_pacemaker: false },
+      { id_skenario: scenario2.id, id_workstation: 'WS3', is_pacemaker: false },
+      { id_skenario: scenario2.id, id_workstation: 'WS4', is_pacemaker: false },
+    ],
+  });
+
+  await prisma.skenarioWorkstationProduk.createMany({
+    data: [
+      { id_skenario: scenario2.id, id_workstation: 'WS1', id_produk: 99, safety_stock: 2, total_waktu_standar_detik: 45 },
+      { id_skenario: scenario2.id, id_workstation: 'WS2', id_produk: 99, safety_stock: 2, total_waktu_standar_detik: 30 },
+      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 1, safety_stock: 2, total_waktu_standar_detik: 40 },
+      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 2, safety_stock: 2, total_waktu_standar_detik: 55 },
+      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 3, safety_stock: 2, total_waktu_standar_detik: 55 },
+      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 1, safety_stock: 2, total_waktu_standar_detik: 25 },
+      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 2, safety_stock: 2, total_waktu_standar_detik: 30 },
+      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 3, safety_stock: 2, total_waktu_standar_detik: 30 },
+    ],
+  });
+
+  // Create consolidated steps
+  const s2_ws1 = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario2.id, id_produk: 99, id_workstation: 'WS1', urutan_langkah: 1, deskripsi_tugas: '- Ambil Chassis & tempatkan pada meja kerja.\n- Ambil Axle Shaft dan Axle Holder dengan tangan kiri (kedua sisi).\n- Pasangkan Holder dengan Axle pada sisi kiri & kanan (Assy Axle).\n- Pasangkan Holder & Axle ke Chassis sisi Front (FR) dengan Short Bolt.\n- Ulangi langkah 2-4 pada sisi yang lain.', gambar_utama_url: '/images/s2_ws1.png' } });
+  const s2_ws2 = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario2.id, id_produk: 99, id_workstation: 'WS2', urutan_langkah: 1, deskripsi_tugas: '- Ambil WIP Assy Holder dengan tangan kiri.\n- Ambil Wheel dan pasang pada axle sisi FR Kanan terlebih dahulu.\n- Ambil Nut Wheel & pasang pada wheel sisi FR Kanan.\n- Ulangi langkah 2-3 pada seluruh sisi.\n- Letakkan Assy Tire di meja kerja dengan sisi Down menghadap ke atas.\n- Kencangkan Bolt Holder (8 Pcs) dengan Kunci L (size 3).', gambar_utama_url: '/images/s2_ws2.png' } });
+  const s2_ws3_pu = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario2.id, id_produk: 1, id_workstation: 'WS3', urutan_langkah: 1, deskripsi_tugas: '- Ambil Front Cabin dengan tangan kanan & letakkan di meja kerja.\n- Ambil WIP dari proses Assy Tire (WS2).\n- Pasangkan Front Cabin & WIP Assy Tire dengan Short Bolt.\n- Ambil PU Cabin (PU Box) dengan tangan kanan.\n- Pasangkan PU Cabin pada Chassis sisi RR dengan Short Bolt.\n- Simpan hasil Final Assy di meja kerja.\n- Kencangkan Bolt Holder (8 Pcs) dengan Kunci L (size 3).', gambar_utama_url: '/images/s2_ws3.png' } });
+  const s2_ws3_dcab = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario2.id, id_produk: 2, id_workstation: 'WS3', urutan_langkah: 1, deskripsi_tugas: '- Ambil Front Cabin & letakkan di meja kerja.\n- Ambil WIP dari proses Assy Tire (WS2).\n- Pasangkan Front Cabin & WIP Assy Tire dengan Short Bolt.\n- Ambil PU Cabin (PU Box).\n- Pasangkan PU Cabin pada Chassis sisi RR dengan Short Bolt.\n- Ambil Rear Cabin (Cabin 2) - untuk membuat D-Cab.\n- Pasang Rear Cabin & PU Cabin dengan Long Bolt.\n- Simpan hasil Final Assy di meja kerja.\n- Kencangkan Bolt Holder (8 Pcs) dengan Kunci L (size 3).', gambar_utama_url: '/images/s2_ws3.png' } });
+  const s2_ws3_mpv = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario2.id, id_produk: 3, id_workstation: 'WS3', urutan_langkah: 1, deskripsi_tugas: '- Ambil Front Cabin & letakkan di meja kerja.\n- Ambil WIP dari proses Assy Tire (WS2).\n- Pasangkan Front Cabin & WIP Assy Tire dengan Short Bolt.\n- Ambil PU Cabin (PU Box).\n- Pasangkan PU Cabin pada Chassis sisi RR dengan Short Bolt.\n- Ambil Center Cabin - untuk membuat MPV.\n- Pasang Center Cabin & PU Cabin dengan Long Bolt.\n- Simpan hasil Final Assy di meja kerja.\n- Kencangkan Bolt Holder (8 Pcs) dengan Kunci L (size 3).', gambar_utama_url: '/images/s2_ws3.png' } });
+  const s2_ws4_pu = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario2.id, id_produk: 1, id_workstation: 'WS4', urutan_langkah: 1, deskripsi_tugas: '- Cek pemasangan Bolt (10 pcs).\n- Cek pemasangan Holder & Cabin dengan Checking Fixture (CF).\n- Cek pemasangan Tire dengan mendorong ke 4 tuas pada CF.', gambar_utama_url: '/images/s2_ws4.png' } });
+  const s2_ws4_dcab = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario2.id, id_produk: 2, id_workstation: 'WS4', urutan_langkah: 1, deskripsi_tugas: '- Cek pemasangan Bolt (11 pcs).\n- Cek pemasangan Holder & Cabin dengan Checking Fixture (CF).\n- Cek pemasangan Tire dengan mendorong ke 4 tuas pada CF.', gambar_utama_url: '/images/s2_ws4.png' } });
+  const s2_ws4_mpv = await prisma.skenarioLangkahKerja.create({ data: { id_skenario: scenario2.id, id_produk: 3, id_workstation: 'WS4', urutan_langkah: 1, deskripsi_tugas: '- Cek pemasangan Bolt (11 pcs).\n- Cek pemasangan Holder & Cabin dengan Checking Fixture (CF).\n- Cek pemasangan Tire dengan mendorong ke 4 tuas pada CF.', gambar_utama_url: '/images/s2_ws4.png' } });
+
+  // Create consolidated BoM for Scenario 2
+  await prisma.bomLangkah.createMany({
+    data: [
+      // WS1 (Consolidated)
+      { id_langkah: s2_ws1.id, id_bahan: b_chassis.id, qty_dibutuhkan: 1, safety_stock: 2 },
+      { id_langkah: s2_ws1.id, id_bahan: b_axle.id, qty_dibutuhkan: 2, safety_stock: 10 },
+      { id_langkah: s2_ws1.id, id_bahan: b_axle_holder.id, qty_dibutuhkan: 4, safety_stock: 8 },
+      { id_langkah: s2_ws1.id, id_bahan: b_short_bolt.id, qty_dibutuhkan: 8, safety_stock: 16 },
+
+      // WS2 (Consolidated)
+      { id_langkah: s2_ws2.id, id_bahan: b_wheel.id, qty_dibutuhkan: 4, safety_stock: 8 },
+      { id_langkah: s2_ws2.id, id_bahan: b_nut_wheel.id, qty_dibutuhkan: 4, safety_stock: 8 },
+
+      // WS3: Pick Up (Consolidated) - Short bolt qty is summed (1+1=2)
+      { id_langkah: s2_ws3_pu.id, id_bahan: b_front_cabin.id, qty_dibutuhkan: 1, safety_stock: 1 },
+      { id_langkah: s2_ws3_pu.id, id_bahan: b_pu_cabin.id, qty_dibutuhkan: 1, safety_stock: 2 },
+      { id_langkah: s2_ws3_pu.id, id_bahan: b_short_bolt.id, qty_dibutuhkan: 2, safety_stock: 10 },
+
+      // WS3: D-CAB (Consolidated) - Short bolt qty is summed (1+1=2)
+      { id_langkah: s2_ws3_dcab.id, id_bahan: b_front_cabin.id, qty_dibutuhkan: 1, safety_stock: 1 },
+      { id_langkah: s2_ws3_dcab.id, id_bahan: b_pu_cabin.id, qty_dibutuhkan: 1, safety_stock: 2 },
+      { id_langkah: s2_ws3_dcab.id, id_bahan: b_rear_cabin.id, qty_dibutuhkan: 1, safety_stock: 2 },
+      { id_langkah: s2_ws3_dcab.id, id_bahan: b_long_bolt.id, qty_dibutuhkan: 1, safety_stock: 4 },
+      { id_langkah: s2_ws3_dcab.id, id_bahan: b_short_bolt.id, qty_dibutuhkan: 2, safety_stock: 10 },
+
+      // WS3: MPV (Consolidated) - Short bolt qty is summed (1+1=2)
+      { id_langkah: s2_ws3_mpv.id, id_bahan: b_front_cabin.id, qty_dibutuhkan: 1, safety_stock: 1 },
+      { id_langkah: s2_ws3_mpv.id, id_bahan: b_pu_cabin.id, qty_dibutuhkan: 1, safety_stock: 2 },
+      { id_langkah: s2_ws3_mpv.id, id_bahan: b_center_cabin.id, qty_dibutuhkan: 1, safety_stock: 2 },
+      { id_langkah: s2_ws3_mpv.id, id_bahan: b_long_bolt.id, qty_dibutuhkan: 1, safety_stock: 4 },
+      { id_langkah: s2_ws3_mpv.id, id_bahan: b_short_bolt.id, qty_dibutuhkan: 2, safety_stock: 10 },
+    ]
   });
 
   console.log(`✅ Master Data Database Berhasil Disiapkan (Tanpa Sesi Aktif)!`);

@@ -18,6 +18,7 @@ interface WorkstationState {
   total_langkah?: number;
   deskripsi_tugas?: string;
   standard_time_detik?: number;
+  gambar_utama_url?: string | null;
   bom?: {
     id_bahan: number;
     nama_bahan: string;
@@ -72,6 +73,7 @@ export default function WorkstationPage() {
         total_langkah: data.total_langkah,
         deskripsi_tugas: data.deskripsi_tugas,
         standard_time_detik: data.waktu_standar_detik,
+        gambar_utama_url: data.gambar_utama_url,
         bom: data.bom ?? [],
         message: data.message ?? '',
       });
@@ -339,8 +341,16 @@ export default function WorkstationPage() {
         </Frame>
         <Frame stacked className="flex w-1/2 flex-col">
           <FrameHeader><FrameTitle>Gambar</FrameTitle></FrameHeader>
-          <FramePanel className="flex items-center justify-center">
-            <span className="italic text-muted-foreground">Tidak ada gambar tersedia</span>
+          <FramePanel className="relative flex items-center justify-center bg-muted/30">
+            {isIdle || !wsState.gambar_utama_url ? (
+              <span className="italic text-muted-foreground">Tidak ada gambar tersedia</span>
+            ) : (
+              <img
+                src={wsState.gambar_utama_url}
+                alt={`Instruksi untuk ${wsState.nama_produk}`}
+                className="h-full w-full object-contain"
+              />
+            )}
           </FramePanel>
         </Frame>
       </div>
