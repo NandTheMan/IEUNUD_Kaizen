@@ -56,6 +56,33 @@ export default function WorkstationPage() {
     }
   }, [activeSessionId, isLoadingSession, router]);
 
+  const fetchWorkstationState = useCallback(async () => {
+  if (!activeSessionId || !wsId) return;
+  try {
+    const res = await fetch(`${apiUrl}/sessions/${activeSessionId}/workstations/${wsId}/status`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (data.status === 'WIP') {
+      setWsState({
+        action: 'NEXT',
+        kode_produk: data.kode_produk,
+        nama_produk: data.nama_produk,
+        langkah_sekarang: data.langkah_sekarang,
+        total_langkah: data.total_langkah,
+        deskripsi_tugas: data.deskripsi_tugas,
+        standard_time_detik: data.waktu_standar_detik,
+        bom: data.bom ?? [],
+        message: data.message ?? '',
+      });
+    } else {
+      setWsState(null);
+    }
+  } catch (err) {
+    console.error(`Failed to fetch workstation state for ${wsId}:`, err);
+  }
+}, [activeSessionId, wsId, apiUrl]);
+
   const fetchBoardData = useCallback(async () => {
     if (!activeSessionId) return;
     try {
@@ -87,26 +114,32 @@ export default function WorkstationPage() {
 
   // WebSocket room and notification handling
   useEffect(() => {
+    if (activeSessionId && socket) {
+      fetchBoardData();
+      fetchStock();
+      fetchWorkstationState(); // hydrate real WIP state on load, don't assume idle
+    }
+  }, [activeSessionId, socket, fetchBoardData, fetchStock, fetchWorkstationState]);
+
+  useEffect(() => {
     if (!socket || !wsId) return;
 
     socket.emit('join_workstation_room', wsId);
-    const handleNotification = (data: { title: string; message: string }) => {
-      setNotification(data);
-    };
-    const handleKanbanUpdate = () => {
-      fetchBoardData();
-      fetchStock();
-    };
+    const handleNotification = (data: { title: string; message: string }) => setNotification(data);
+    const handleKanbanUpdate = () => { fetchBoardData(); fetchStock(); };
+    const handleStateUpdate = () => fetchWorkstationState(); // 👈 replaces reload
 
     socket.on('WORKSTATION_NOTIFICATION', handleNotification);
     socket.on('kanban_updated', handleKanbanUpdate);
+    socket.on('workstation_state_updated', handleStateUpdate);
 
     return () => {
       socket.emit('leave_workstation_room', wsId);
       socket.off('WORKSTATION_NOTIFICATION', handleNotification);
       socket.off('kanban_updated', handleKanbanUpdate);
+      socket.off('workstation_state_updated', handleStateUpdate);
     };
-  }, [socket, wsId, fetchBoardData, fetchStock]);
+  }, [socket, wsId, fetchBoardData, fetchStock, fetchWorkstationState]);
 
   const handleToggle = useCallback(async () => {
     if (!activeSessionId || isLoading) return;

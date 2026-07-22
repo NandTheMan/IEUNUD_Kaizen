@@ -41,6 +41,7 @@ export interface HeijunkaQueueItem {
   kode_produk: string
   sequence: number
   target_release_at?: string | null
+  status: 'QUEUED' | 'RELEASED' | 'SHIPPED'
 }
 
 export interface ProductionKanbanProps {

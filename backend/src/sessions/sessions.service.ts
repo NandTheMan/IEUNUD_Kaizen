@@ -110,13 +110,18 @@ export class SessionsService {
       throw new NotFoundException('No active session to stop.');
     }
 
-    return this.prisma.sesiPraktikum.update({
+    const updatedSession = await this.prisma.sesiPraktikum.update({
       where: { id: activeSession.id },
       data: {
         status: 'COMPLETED',
         waktu_selesai: new Date(),
       },
     });
+
+    this.eventsGateway.broadcastSessionFinished(updatedSession.id);
+    this.eventsGateway.broadcastKanbanUpdate();
+
+    return updatedSession;
   }
 
   async getKanbanBoardState(sessionId: number) {
@@ -158,8 +163,8 @@ export class SessionsService {
       waktu_mulai: item.waktu_mulai.toISOString(),
       waktu_selesai: item.waktu_selesai ? item.waktu_selesai.toISOString() : null,
       status: item.status,
-      // Note: standard_time_detik requires joining SkenarioLangkahKerja if you want it dynamic!
-      standard_time_detik: 120,
+      // Note: total_waktu_standar_detik requires joining SkenarioLangkahKerja if you want it dynamic!
+      total_waktu_standar_detik: 120,
     }));
 
     // 4. Fetch the Heijunka Queue
@@ -208,23 +213,136 @@ export class SessionsService {
     }));
   }
 
+  async getWarehouseStockState(sessionId: number) {
+    const stockData = await this.prisma.stokLiveWorkstation.findMany({
+        where: { id_sesi: sessionId },
+        include: {
+            bahan: true,
+            workstation: true,
+        },
+        orderBy: [
+            { workstation: { nama_ws: 'asc' } },
+            { bahan: { nama_bahan: 'asc' } },
+        ],
+    });
+
+    // Group by workstation
+    const groupedByWs = stockData.reduce((acc, stockItem) => {
+        const wsId = stockItem.id_workstation;
+        if (!acc[wsId]) {
+            acc[wsId] = {
+                id: wsId,
+                nama_ws: stockItem.workstation.nama_ws,
+                materials: [],
+            };
+        }
+        acc[wsId].materials.push({
+            id_bahan: stockItem.id_bahan,
+            nama_bahan: stockItem.bahan.nama_bahan,
+            gambar_url: stockItem.bahan.gambar_url,
+            stok_sekarang: stockItem.stok_sekarang,
+            safety_stock_threshold: stockItem.safety_stock_threshold,
+        });
+        return acc;
+    }, {} as Record<string, { id: string; nama_ws: string; materials: any[] }>);
+
+    return Object.values(groupedByWs);
+  }
+
   async decrementWorkstationStock(sessionId: number, wsId: string, materialId: number, quantity: number) {
-    const currentStock = await this.prisma.stokLiveWorkstation.findUniqueOrThrow({
-      where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: materialId } },
+    let alertTriggered = false;
+    const updatedStock = await this.prisma.$transaction(async (tx) => {
+      const currentStock = await tx.stokLiveWorkstation.findUniqueOrThrow({
+        where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: materialId } },
+      });
+
+      const decrementAmount = Math.min(currentStock.stok_sekarang, quantity);
+
+      const stockAfterUpdate = await tx.stokLiveWorkstation.update({
+        where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: materialId } },
+        data: { stok_sekarang: { decrement: decrementAmount } },
+      });
+
+      if (stockAfterUpdate.stok_sekarang <= stockAfterUpdate.safety_stock_threshold) {
+        const existingAlert = await tx.logLogistik.findFirst({
+            where: { id_sesi: sessionId, id_workstation: wsId, id_bahan: materialId, waktu_dipenuhi: null }
+        });
+        if (!existingAlert) {
+            const bahan = await tx.bahan.findUniqueOrThrow({ where: { id: materialId } });
+            await tx.logLogistik.create({
+                data: {
+                    id_sesi: sessionId,
+                    id_workstation: wsId,
+                    id_bahan: materialId,
+                    qty_diminta: bahan.kuantitas_pack,
+                    waktu_diminta: new Date(),
+                }
+            });
+            alertTriggered = true;
+        }
+      }
+      return stockAfterUpdate;
     });
 
-    // Don't allow stock to go below zero
-    const decrementAmount = Math.min(currentStock.stok_sekarang, quantity);
-
-    const updatedStock = await this.prisma.stokLiveWorkstation.update({
-      where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: materialId } },
-      data: { stok_sekarang: { decrement: decrementAmount } },
-    });
-
+    if (alertTriggered) {
+      this.eventsGateway.broadcastLowStockUpdate();
+    }
     // Broadcast an update so the workstation UI refreshes
     this.eventsGateway.broadcastKanbanUpdate();
 
     return updatedStock;
+  }
+
+  async getLowStockAlerts(sessionId: number) {
+    return this.prisma.logLogistik.findMany({
+        where: { id_sesi: sessionId, waktu_dipenuhi: null },
+        include: { bahan: true },
+        orderBy: { waktu_diminta: 'asc' },
+    });
+  }
+
+  async fulfillLogisticsRequest(sessionId: number, logId: number) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 1. Find the request
+      const request = await tx.logLogistik.findUnique({
+        where: { id: logId },
+      });
+
+      if (!request) {
+        throw new NotFoundException(`Permintaan logistik dengan ID ${logId} tidak ditemukan.`);
+      }
+      if (request.id_sesi !== sessionId) {
+        throw new BadRequestException('Permintaan ini bukan bagian dari sesi aktif.');
+      }
+      if (request.waktu_dipenuhi) {
+        throw new BadRequestException('Permintaan ini sudah dipenuhi.');
+      }
+
+      // 2. Fulfill the request by increasing the stock
+      await tx.stokLiveWorkstation.update({
+        where: {
+          id_sesi_id_workstation_id_bahan: {
+            id_sesi: request.id_sesi,
+            id_workstation: request.id_workstation,
+            id_bahan: request.id_bahan,
+          },
+        },
+        data: {
+          stok_sekarang: { increment: request.qty_diminta },
+        },
+      });
+
+      // 3. Mark the request as fulfilled
+      return tx.logLogistik.update({
+        where: { id: logId },
+        data: { waktu_dipenuhi: new Date() },
+      });
+    });
+
+    this.eventsGateway.broadcastKanbanUpdate();
+    this.eventsGateway.broadcastLowStockUpdate();
+
+    return { success: true, message: `Permintaan logistik #${logId} telah dipenuhi.` };
   }
 
   async getAndonAlerts(sessionId: number) {
@@ -484,6 +602,49 @@ export class SessionsService {
     return result;
   }
 
+  async getSessionSummary(sessionId: number) {
+    const session = await this.prisma.sesiPraktikum.findUniqueOrThrow({
+        where: { id: sessionId },
+    });
+
+    const shippedCount = await this.prisma.antrianHeijunka.groupBy({
+        by: ['id_produk'],
+        where: { id_sesi: sessionId, status: 'SHIPPED' },
+        _count: { id_produk: true },
+    });
+
+    const ngCount = await this.prisma.logProdukNG.groupBy({
+        by: ['id_produk'],
+        where: { id_sesi: sessionId },
+        _count: { id_produk: true },
+    });
+
+    const productIds = [...new Set([...shippedCount.map(s => s.id_produk), ...ngCount.map(n => n.id_produk)])];
+    const products = await this.prisma.produk.findMany({
+        where: { id: { in: productIds } }
+    });
+
+    const productionResults = products.map(p => ({
+        id_produk: p.id,
+        nama_produk: p.nama_produk,
+        qty_shipped: shippedCount.find(s => s.id_produk === p.id)?._count.id_produk || 0,
+        qty_ng: ngCount.find(n => n.id_produk === p.id)?._count.id_produk || 0,
+    })).filter(r => r.qty_shipped > 0 || r.qty_ng > 0);
+
+    const totalAndon = await this.prisma.logAndon.count({ where: { id_sesi: sessionId } });
+    const totalLogistik = await this.prisma.logLogistik.count({ where: { id_sesi: sessionId } });
+
+    const durationMs = session.waktu_selesai ? session.waktu_selesai.getTime() - session.waktu_mulai.getTime() : 0;
+
+    return {
+        sessionId: session.id,
+        duration_minutes: Math.round(durationMs / 60000),
+        production_results: productionResults,
+        total_andon_alerts: totalAndon,
+        total_logistics_requests: totalLogistik,
+    };
+  }
+
   /**
    * Toggles the given workstation forward one step: advances an in-progress
    * item to its next step, finishes it, or pulls a new item to start work on.
@@ -540,10 +701,32 @@ export class SessionsService {
             );
           }
 
-          await tx.stokLiveWorkstation.update({
+          const updatedStock = await tx.stokLiveWorkstation.update({
             where: { id_sesi_id_workstation_id_bahan: { id_sesi: sessionId, id_workstation: wsId, id_bahan: bomItem.id_bahan } },
             data: { stok_sekarang: { decrement: bomItem.qty_dibutuhkan } },
           });
+
+          if (updatedStock.stok_sekarang <= updatedStock.safety_stock_threshold) {
+            const existingAlert = await tx.logLogistik.findFirst({
+                where: { id_sesi: sessionId, id_workstation: wsId, id_bahan: bomItem.id_bahan, waktu_dipenuhi: null }
+            });
+            // If no active request for this material exists, create one.
+            // The quantity requested (`qty_diminta`) is determined here.
+            // We are using `bomItem.bahan.kuantitas_pack`, which is the standard
+            // pack size for that specific material, defined in the database.
+            if (!existingAlert) {
+                await tx.logLogistik.create({
+                    data: {
+                        id_sesi: sessionId,
+                        id_workstation: wsId,
+                        id_bahan: bomItem.id_bahan,
+                        qty_diminta: bomItem.bahan.kuantitas_pack,
+                        waktu_diminta: new Date(),
+                    }
+                });
+                this.eventsGateway.broadcastLowStockUpdate();
+            }
+          }
         }
       }
     }
@@ -582,6 +765,14 @@ export class SessionsService {
           gambar_url: b.bahan.gambar_url,
         })) || [];
 
+        // Get the total standard time for the whole process at this workstation
+        const processInfo = await tx.skenarioWorkstationProduk.findUnique({
+          where: {
+            id_skenario_id_workstation_id_produk: { id_skenario: session.id_skenario, id_workstation: wsId, id_produk: activeWip.id_produk }
+          }
+        });
+        const totalStandardTime = processInfo?.total_waktu_standar_detik || 0;
+
         return {
           action: 'NEXT',
           kode_produk: activeWip.kode_produk,
@@ -591,6 +782,7 @@ export class SessionsService {
           deskripsi_tugas: stepDetails?.deskripsi_tugas || `Langkah ${nextStepNum}`,
           message: `Lanjut ke langkah ${nextStepNum}/${maxSteps}`,
           bom: bomForStep,
+          standard_time_detik: totalStandardTime,
         };
       } else {
         const finished = await tx.logSiklusKanban.updateMany({
@@ -742,6 +934,14 @@ export class SessionsService {
       where: { id: activeWip.id_produk }
     });
 
+    // Get the total standard time for the whole process at this workstation
+    const processInfo = await tx.skenarioWorkstationProduk.findUnique({
+      where: {
+        id_skenario_id_workstation_id_produk: { id_skenario: session.id_skenario, id_workstation: wsId, id_produk: activeWip.id_produk }
+      }
+    });
+    const totalStandardTime = processInfo?.total_waktu_standar_detik || 0;
+
     return {
       action: 'START',
       kode_produk: activeWip.kode_produk,
@@ -751,11 +951,90 @@ export class SessionsService {
       deskripsi_tugas: stepDetails?.deskripsi_tugas || 'Langkah 1',
       message: `${wsId} mulai mengerjakan ${activeWip.kode_produk}`,
       bom: bomForStep,
+      standard_time_detik: totalStandardTime,
     };
   });
 
+  // Menyiarkan pembaruan umum untuk dasbor overview seperti papan Kanban utama.
   this.eventsGateway.broadcastKanbanUpdate();
+  // Menyiarkan pembaruan spesifik ke stasiun kerja yang di-toggle.
+  this.eventsGateway.broadcastWorkstationStateUpdate(wsId);
+  // Pembaruan stok rendah disiarkan dari dalam logika transaksi
+  // Low stock updates are broadcast from within the transaction logic
   return result;
 }
 
-}
+  async getWorkstationStatus(sessionId: number, wsId: string) {
+  // Most recent item currently sitting at this workstation: either being
+  // worked on (WIP) or finished and waiting to be pulled by the next station (DONE).
+  const current = await this.prisma.logSiklusKanban.findFirst({
+    where: {
+      id_sesi: sessionId,
+      id_workstation: wsId,
+      status: { in: ['WIP', 'DONE'] },
+    },
+    orderBy: { waktu_mulai: 'desc' },
+    include: { produk: true },
+  });
+
+  if (!current) {
+    return { status: 'IDLE', message: 'Menunggu sinyal tarikan dari stasiun berikutnya...' };
+  }
+
+  if (current.status === 'DONE') {
+    return {
+      status: 'DONE',
+      kode_produk: current.kode_produk,
+      nama_produk: current.produk.nama_produk,
+      message: `${current.kode_produk} selesai. Barang siap ditarik stasiun berikutnya.`,
+    };
+  }
+
+  // status === 'WIP'
+  const session = await this.prisma.sesiPraktikum.findUniqueOrThrow({ where: { id: sessionId } });
+
+  const [totalSteps, stepDetails, processInfo] = await Promise.all([
+    this.prisma.skenarioLangkahKerja.count({
+      where: { id_skenario: session.id_skenario, id_produk: current.id_produk, id_workstation: wsId },
+    }),
+    this.prisma.skenarioLangkahKerja.findFirst({
+      where: {
+        id_skenario: session.id_skenario,
+        id_produk: current.id_produk,
+        id_workstation: wsId,
+        urutan_langkah: current.langkah_sekarang,
+      },
+      include: { bom: { include: { bahan: true } } },
+    }),
+    this.prisma.skenarioWorkstationProduk.findUnique({
+      where: {
+        id_skenario_id_workstation_id_produk: { id_skenario: session.id_skenario, id_workstation: wsId, id_produk: current.id_produk }
+      }
+    })
+  ]);
+
+  const standardTime = processInfo?.total_waktu_standar_detik ?? 0;
+  const elapsed = current.waktu_mulai
+    ? Math.floor((Date.now() - current.waktu_mulai.getTime()) / 1000)
+    : 0;
+  const remaining = Math.max(standardTime - elapsed, 0);
+
+  const bom = stepDetails?.bom.map((b) => ({
+    id_bahan: b.id_bahan,
+    nama_bahan: b.bahan.nama_bahan,
+    qty_dibutuhkan: b.qty_dibutuhkan,
+    gambar_url: b.bahan.gambar_url,
+  })) ?? [];
+
+  return {
+    status: 'WIP',
+    kode_produk: current.kode_produk,
+    nama_produk: current.produk.nama_produk,
+    langkah_sekarang: current.langkah_sekarang,
+    total_langkah: totalSteps > 0 ? totalSteps : 1,
+    deskripsi_tugas: stepDetails?.deskripsi_tugas ?? `Langkah ${current.langkah_sekarang}`,
+    waktu_standar_detik: standardTime,
+    remaining_time_detik: remaining,
+    bom,
+  };
+}}

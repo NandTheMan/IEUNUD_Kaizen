@@ -11,10 +11,17 @@ RUN npm install -g pnpm
 COPY package.json pnpm-lock.yaml ./
 
 # Install project dependencies
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 
 # Copy all other source code components
 COPY . .
+
+# Bake the API URL in at build time. Default is a RELATIVE path ("/api"),
+# so the same built image works from any device's browser on the LAN —
+# nginx is what actually routes "/api" to the backend container.
+# This is intentionally NOT a specific IP address.
+ARG NEXT_PUBLIC_API_URL=/api
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # Build the Next.js application into static HTML/CSS/JS chunks
 RUN pnpm run build

@@ -11,7 +11,7 @@ RUN npm install -g pnpm
 COPY package.json pnpm-lock.yaml ./
 
 # Install project dependencies
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 
 # Copy the rest of the application code (including Prisma schema)
 COPY . .
@@ -25,5 +25,7 @@ RUN pnpm run build
 # Expose port 3001 (The port NestJS runs on)
 EXPOSE 3001
 
-# Start the application in production mode
-CMD [ "pnpm", "run", "start:prod" ]
+# Apply any pending DB migrations, then start the server.
+# This means whoever runs this container never has to type a prisma
+# command by hand — new migrations you write just get applied on next restart.
+CMD ["sh", "-c", "npx prisma migrate deploy && pnpm run start:prod:docker"]
