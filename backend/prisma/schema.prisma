@@ -92,6 +92,7 @@ model SkenarioWorkstationProduk {
   id_workstation String @db.VarChar(50)
   id_produk      Int
   safety_stock   Int    // The target limit for this specific product
+  total_waktu_standar_detik Int? // The total ideal time for this product at this workstation
 
   skenario    SkenarioGame @relation(fields: [id_skenario], references: [id], onDelete: Cascade)
   workstation Workstation  @relation(fields: [id_workstation], references: [id])
@@ -107,7 +108,6 @@ model SkenarioLangkahKerja {
   id_workstation      String @db.VarChar(50)
   urutan_langkah      Int
   deskripsi_tugas     String @db.Text
-  standard_time_detik Int
   catatan_tambahan    String? @db.Text
   gambar_utama_url    String? @db.VarChar(255)
   gambar_tambahan_url String? @db.VarChar(255)
@@ -203,7 +203,6 @@ model LogSiklusKanban {
   status         String    @db.VarChar(50)
   
   langkah_sekarang Int     @default(1)
-  waktu_mulai_langkah DateTime? @db.Timestamptz()
 
   sesi        SesiPraktikum @relation(fields: [id_sesi], references: [id], onDelete: Cascade)
   produk      Produk        @relation(fields: [id_produk], references: [id])

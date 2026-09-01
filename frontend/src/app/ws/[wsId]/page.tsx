@@ -18,6 +18,7 @@ interface WorkstationState {
   total_langkah?: number;
   deskripsi_tugas?: string;
   standard_time_detik?: number;
+  gambar_utama_url?: string | null;
   bom?: {
     id_bahan: number;
     nama_bahan: string;
@@ -40,6 +41,8 @@ export default function WorkstationPage() {
   const wsId = params.wsId as string;
 
   const [isLoading, setIsLoading] = useState(false);
+  const [pullSignalCount, setPullSignalCount] = useState(0);
+
   const [notification, setNotification] = useState<{ title: string; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [wsState, setWsState] = useState<WorkstationState | null>(null);
@@ -55,6 +58,34 @@ export default function WorkstationPage() {
       router.push('/');
     }
   }, [activeSessionId, isLoadingSession, router]);
+
+  const fetchWorkstationState = useCallback(async () => {
+  if (!activeSessionId || !wsId) return;
+  try {
+    const res = await fetch(`${apiUrl}/sessions/${activeSessionId}/workstations/${wsId}/status`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (data.status === 'WIP') {
+      setWsState({
+        action: 'NEXT',
+        kode_produk: data.kode_produk,
+        nama_produk: data.nama_produk,
+        langkah_sekarang: data.langkah_sekarang,
+        total_langkah: data.total_langkah,
+        deskripsi_tugas: data.deskripsi_tugas,
+        standard_time_detik: data.waktu_standar_detik,
+        gambar_utama_url: data.gambar_utama_url,
+        bom: data.bom ?? [],
+        message: data.message ?? '',
+      });
+    } else {
+      setWsState(null);
+    }
+  } catch (err) {
+    console.error(`Failed to fetch workstation state for ${wsId}:`, err);
+  }
+}, [activeSessionId, wsId, apiUrl]);
 
   const fetchBoardData = useCallback(async () => {
     if (!activeSessionId) return;
@@ -78,6 +109,18 @@ export default function WorkstationPage() {
     }
   }, [activeSessionId, wsId, apiUrl]);
 
+  const fetchPullSignalStatus = useCallback(async () => {
+    if (!activeSessionId || !wsId) return;
+    try {
+      const res = await fetch(`${apiUrl}/sessions/${activeSessionId}/workstations/${wsId}/pull-signal-status`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      setPullSignalCount(data.count);
+    } catch (err) {
+      console.error(`Failed to fetch pull signal status for ${wsId}:`, err);
+    }
+  }, [activeSessionId, wsId, apiUrl]);
+
   useEffect(() => {
     if (activeSessionId && socket) {
       fetchBoardData();
@@ -87,26 +130,33 @@ export default function WorkstationPage() {
 
   // WebSocket room and notification handling
   useEffect(() => {
+    if (activeSessionId && socket) {
+      fetchBoardData();
+      fetchStock();
+      fetchWorkstationState();
+      fetchPullSignalStatus();
+    }
+  }, [activeSessionId, socket, fetchBoardData, fetchStock, fetchWorkstationState, fetchPullSignalStatus]);
+
+  useEffect(() => {
     if (!socket || !wsId) return;
 
     socket.emit('join_workstation_room', wsId);
-    const handleNotification = (data: { title: string; message: string }) => {
-      setNotification(data);
-    };
-    const handleKanbanUpdate = () => {
-      fetchBoardData();
-      fetchStock();
-    };
+    const handleNotification = (data: { title: string; message: string }) => setNotification(data);
+    const handleKanbanUpdate = () => { fetchBoardData(); fetchStock(); };
+    const handleStateUpdate = () => fetchWorkstationState(); // 👈 replaces reload
 
     socket.on('WORKSTATION_NOTIFICATION', handleNotification);
     socket.on('kanban_updated', handleKanbanUpdate);
+    socket.on('workstation_state_updated', handleStateUpdate);
 
     return () => {
       socket.emit('leave_workstation_room', wsId);
       socket.off('WORKSTATION_NOTIFICATION', handleNotification);
       socket.off('kanban_updated', handleKanbanUpdate);
+      socket.off('workstation_state_updated', handleStateUpdate);
     };
-  }, [socket, wsId, fetchBoardData, fetchStock]);
+  }, [socket, wsId, fetchBoardData, fetchStock, fetchWorkstationState]);
 
   const handleToggle = useCallback(async () => {
     if (!activeSessionId || isLoading) return;
@@ -216,7 +266,7 @@ export default function WorkstationPage() {
     };
   }, [isLoading, isIdle, handleToggle, handleReportNg]);
 
-  const idleMessage = notification
+  const idleMessage = pullSignalCount > 0
     ? 'Otorisasi diterima. Tekan Spasi untuk memulai.'
     : 'Menunggu sinyal tarikan dari stasiun berikutnya...';
 
@@ -286,8 +336,23 @@ export default function WorkstationPage() {
             </Button>
           </FrameHeader>
           <FramePanel className="flex flex-1 flex-col p-0">
-            <div className="flex-1 overflow-y-auto p-4 text-xl">
-              {isIdle ? idleMessage : wsState.deskripsi_tugas}
+            <div className="flex-1 overflow-y-auto p-4">
+              {isIdle ? (
+                <p className="text-xl">{idleMessage}</p>
+              ) : (
+                <ul className="space-y-2 text-xl leading-relaxed">
+                  {wsState.deskripsi_tugas
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter(Boolean)
+                    .map((line, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="mt-1 text-primary">•</span>
+                        <span>{line.replace(/^-\s*/, '')}</span>
+                      </li>
+                    ))}
+                </ul>
+              )}
             </div>
             <div className="mt-auto border-t p-4">
               <h3 className="font-semibold">Catatan</h3>
@@ -306,8 +371,16 @@ export default function WorkstationPage() {
         </Frame>
         <Frame stacked className="flex w-1/2 flex-col">
           <FrameHeader><FrameTitle>Gambar</FrameTitle></FrameHeader>
-          <FramePanel className="flex items-center justify-center">
-            <span className="italic text-muted-foreground">Tidak ada gambar tersedia</span>
+          <FramePanel className="relative flex items-center justify-center bg-muted/30">
+            {isIdle || !wsState.gambar_utama_url ? (
+              <span className="italic text-muted-foreground">Tidak ada gambar tersedia</span>
+            ) : (
+              <img
+                src={wsState.gambar_utama_url}
+                alt={`Instruksi untuk ${wsState.nama_produk}`}
+                className="h-full w-full object-contain"
+              />
+            )}
           </FramePanel>
         </Frame>
       </div>

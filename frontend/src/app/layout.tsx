@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
+import Summary from "@/components/summary";
 
 const spaceGroteskHeading = Space_Grotesk({subsets:['latin'],variable:'--font-heading'});
 
@@ -37,6 +38,7 @@ export default function RootLayout({
       <body className="h-screen flex flex-col bg-muted/50">
         <SocketProvider>
           <SessionProvider>
+            <Summary />
             {children}
           </SessionProvider>
         </SocketProvider>

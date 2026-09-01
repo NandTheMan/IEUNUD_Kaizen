@@ -1,0 +1,4 @@
+node_modules
+dist
+.swc
+npm-debug.log

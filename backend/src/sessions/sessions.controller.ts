@@ -1,4 +1,4 @@
-import { Body, Controller, Get, NotFoundException, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, ParseIntPipe, Post, Res } from '@nestjs/common';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { DecrementStockDto } from './dto/decrement-stock.dto';
 import { ReportAndonDto } from './dto/report-andon.dto';
@@ -6,6 +6,7 @@ import { ReportNgDto } from './dto/report-ng.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
 import { SubmitOrderDto } from './dto/submit-order.dto';
 import { SessionsService } from './sessions.service';
+import { Response } from 'express';
 
 @Controller('sessions')
 export class SessionsController {
@@ -36,6 +37,14 @@ export class SessionsController {
         return session;
     }
 
+    @Get('sessions/:sessionId/workstations/:wsId/pull-signal-status')
+    getPullSignalStatus(
+    @Param('sessionId', ParseIntPipe) sessionId: number,
+    @Param('wsId') wsId: string,
+    ) {
+    return this.sessionsService.getPullSignalStatus(sessionId, wsId);
+    }
+
     @Get(':id/kanban-board')
     async getKanbanBoard(@Param('id', ParseIntPipe) id: number) {
         return this.sessionsService.getKanbanBoardState(id);
@@ -56,12 +65,54 @@ export class SessionsController {
         return this.sessionsService.getAndonAlerts(id);
     }
 
+    @Get(':id/summary')
+    async getSessionSummary(@Param('id', ParseIntPipe) id: number) {
+        return this.sessionsService.getSessionSummary(id);
+    }
+
+    @Get(':id/oee')
+    getOee(@Param('id', ParseIntPipe) id: number) {
+    return this.sessionsService.getOEEMetrics(id);
+    }
+
+    @Get(':id/cycles')
+    getCycles(@Param('id', ParseIntPipe) id: number) {
+    return this.sessionsService.getCycleLog(id);
+    }
+
+    @Get(':id/export')
+    async exportSessionSummary(
+        @Param('id', ParseIntPipe) id: number,
+        @Res() res: Response,
+    ) {
+        // 1. Set the headers to trigger a file download in the browser
+        res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+        res.setHeader(
+        'Content-Disposition',
+        `attachment; filename=Laporan_TPS_Sesi_${id}.xlsx`,
+        );
+
+        // 2. Stream the Excel file directly to the response
+        await this.sessionsService.generateExcelReport(id, res);
+    }
+
     @Get(':id/workstations/:wsId/stock')
     async getWorkstationStock(
         @Param('id', ParseIntPipe) sessionId: number,
         @Param('wsId') wsId: string,
     ) {
         return this.sessionsService.getWorkstationStock(sessionId, wsId);
+    }
+
+    @Get(':id/workstations/:wsId/status')
+    async getWorkstationStatus(
+    @Param('id', ParseIntPipe) sessionId: number,
+    @Param('wsId') wsId: string,
+    ) {
+    return this.sessionsService.getWorkstationStatus(sessionId, wsId);
     }
 
     @Post(':id/orders')
