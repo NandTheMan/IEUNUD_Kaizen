@@ -227,13 +227,13 @@ async function main() {
     data: [
       { id_skenario: scenario2.id, id_workstation: 'WS1', id_produk: 99, safety_stock: 2, total_waktu_standar_detik: 45 },
       { id_skenario: scenario2.id, id_workstation: 'WS2', id_produk: 99, safety_stock: 2, total_waktu_standar_detik: 30 },
-      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 1, safety_stock: 2, total_waktu_standar_detik: 40 },
-      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 2, safety_stock: 2, total_waktu_standar_detik: 55 },
-      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 3, safety_stock: 2, total_waktu_standar_detik: 55 },
-      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 1, safety_stock: 2, total_waktu_standar_detik: 25 },
-      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 2, safety_stock: 2, total_waktu_standar_detik: 30 },
-      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 3, safety_stock: 2, total_waktu_standar_detik: 30 },
-    ],
+      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 1, safety_stock: 1, total_waktu_standar_detik: 40 },
+      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 2, safety_stock: 1, total_waktu_standar_detik: 55 },
+      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 3, safety_stock: 1, total_waktu_standar_detik: 55 },
+      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 1, safety_stock: 0, total_waktu_standar_detik: 25 },
+      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 2, safety_stock: 0, total_waktu_standar_detik: 30 },
+      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 3, safety_stock: 0, total_waktu_standar_detik: 30 },
+    ]
   });
 
   // Create consolidated steps
@@ -265,14 +265,14 @@ async function main() {
       { id_langkah: s2_ws3_pu.id, id_bahan: b_short_bolt.id, qty_dibutuhkan: 2, safety_stock: 10 },
 
       // WS3: D-CAB (Consolidated) - Short bolt qty is summed (1+1=2)
-      { id_langkah: s2_ws3_dcab.id, id_bahan: b_front_cabin.id, qty_dibutuhkan: 1, safety_stock: 1 },
+      { id_langkah: s2_ws3_dcab.id, id_bahan: b_front_cabin.id, qty_dibutuhkan: 1, safety_stock: 2 },
       { id_langkah: s2_ws3_dcab.id, id_bahan: b_pu_cabin.id, qty_dibutuhkan: 1, safety_stock: 2 },
       { id_langkah: s2_ws3_dcab.id, id_bahan: b_rear_cabin.id, qty_dibutuhkan: 1, safety_stock: 2 },
       { id_langkah: s2_ws3_dcab.id, id_bahan: b_long_bolt.id, qty_dibutuhkan: 1, safety_stock: 4 },
       { id_langkah: s2_ws3_dcab.id, id_bahan: b_short_bolt.id, qty_dibutuhkan: 2, safety_stock: 10 },
 
       // WS3: MPV (Consolidated) - Short bolt qty is summed (1+1=2)
-      { id_langkah: s2_ws3_mpv.id, id_bahan: b_front_cabin.id, qty_dibutuhkan: 1, safety_stock: 1 },
+      { id_langkah: s2_ws3_mpv.id, id_bahan: b_front_cabin.id, qty_dibutuhkan: 1, safety_stock: 2 },
       { id_langkah: s2_ws3_mpv.id, id_bahan: b_pu_cabin.id, qty_dibutuhkan: 1, safety_stock: 2 },
       { id_langkah: s2_ws3_mpv.id, id_bahan: b_center_cabin.id, qty_dibutuhkan: 1, safety_stock: 2 },
       { id_langkah: s2_ws3_mpv.id, id_bahan: b_long_bolt.id, qty_dibutuhkan: 1, safety_stock: 4 },

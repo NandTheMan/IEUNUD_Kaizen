@@ -41,6 +41,8 @@ export default function WorkstationPage() {
   const wsId = params.wsId as string;
 
   const [isLoading, setIsLoading] = useState(false);
+  const [pullSignalCount, setPullSignalCount] = useState(0);
+
   const [notification, setNotification] = useState<{ title: string; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [wsState, setWsState] = useState<WorkstationState | null>(null);
@@ -107,6 +109,18 @@ export default function WorkstationPage() {
     }
   }, [activeSessionId, wsId, apiUrl]);
 
+  const fetchPullSignalStatus = useCallback(async () => {
+    if (!activeSessionId || !wsId) return;
+    try {
+      const res = await fetch(`${apiUrl}/sessions/${activeSessionId}/workstations/${wsId}/pull-signal-status`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      setPullSignalCount(data.count);
+    } catch (err) {
+      console.error(`Failed to fetch pull signal status for ${wsId}:`, err);
+    }
+  }, [activeSessionId, wsId, apiUrl]);
+
   useEffect(() => {
     if (activeSessionId && socket) {
       fetchBoardData();
@@ -119,9 +133,10 @@ export default function WorkstationPage() {
     if (activeSessionId && socket) {
       fetchBoardData();
       fetchStock();
-      fetchWorkstationState(); // hydrate real WIP state on load, don't assume idle
+      fetchWorkstationState();
+      fetchPullSignalStatus();
     }
-  }, [activeSessionId, socket, fetchBoardData, fetchStock, fetchWorkstationState]);
+  }, [activeSessionId, socket, fetchBoardData, fetchStock, fetchWorkstationState, fetchPullSignalStatus]);
 
   useEffect(() => {
     if (!socket || !wsId) return;
@@ -251,7 +266,7 @@ export default function WorkstationPage() {
     };
   }, [isLoading, isIdle, handleToggle, handleReportNg]);
 
-  const idleMessage = notification
+  const idleMessage = pullSignalCount > 0
     ? 'Otorisasi diterima. Tekan Spasi untuk memulai.'
     : 'Menunggu sinyal tarikan dari stasiun berikutnya...';
 
@@ -321,8 +336,23 @@ export default function WorkstationPage() {
             </Button>
           </FrameHeader>
           <FramePanel className="flex flex-1 flex-col p-0">
-            <div className="flex-1 overflow-y-auto p-4 text-xl">
-              {isIdle ? idleMessage : wsState.deskripsi_tugas}
+            <div className="flex-1 overflow-y-auto p-4">
+              {isIdle ? (
+                <p className="text-xl">{idleMessage}</p>
+              ) : (
+                <ul className="space-y-2 text-xl leading-relaxed">
+                  {wsState.deskripsi_tugas
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter(Boolean)
+                    .map((line, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="mt-1 text-primary">•</span>
+                        <span>{line.replace(/^-\s*/, '')}</span>
+                      </li>
+                    ))}
+                </ul>
+              )}
             </div>
             <div className="mt-auto border-t p-4">
               <h3 className="font-semibold">Catatan</h3>

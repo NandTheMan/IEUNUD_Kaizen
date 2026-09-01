@@ -1,4 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import * as ExcelJS from 'exceljs';
+import { Response } from 'express';
 import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service'; // Assuming you have a PrismaService
 
@@ -106,6 +108,13 @@ export class SessionsService {
         ...newSession,
         message: `Session ${newSession.id} created and initial safety stock populated.`
     };
+  }
+
+  async getPullSignalStatus(sessionId: number, wsId: string) {
+    const count = await this.prisma.logSiklusKanban.count({
+      where: { id_sesi: sessionId, id_workstation: wsId, status: 'QUEUE' },
+    });
+    return { count, hasPullSignal: count > 0 };
   }
 
   findActive() {
@@ -627,47 +636,436 @@ export class SessionsService {
     return result;
   }
 
-  async getSessionSummary(sessionId: number) {
-    const session = await this.prisma.sesiPraktikum.findUniqueOrThrow({
-        where: { id: sessionId },
+  async getOEEMetrics(sessionId: number) {
+    const session = await this.prisma.sesiPraktikum.findUnique({ where: { id: sessionId } });
+    if (!session) throw new NotFoundException('Session not found');
+
+    const sessionEnd = session.waktu_selesai ?? new Date();
+    const plannedTimeSeconds = (sessionEnd.getTime() - session.waktu_mulai.getTime()) / 1000;
+
+    // Ideal cycle times per workstation+product, scoped to this scenario
+    const standardTimes = await this.prisma.skenarioWorkstationProduk.findMany({
+      where: { id_skenario: session.id_skenario },
+    });
+    const stdTimeMap = new Map<string, number>();
+    standardTimes.forEach(st =>
+      stdTimeMap.set(`${st.id_workstation}-${st.id_produk}`, st.total_waktu_standar_detik ?? 0)
+    );
+
+    const pacemaker = await this.prisma.skenarioWorkstation.findFirst({
+      where: { id_skenario: session.id_skenario, is_pacemaker: true },
+    });
+    const pacemakerId = pacemaker?.id_workstation ?? null;
+
+    // Exclude LOGISTICS stations — they supply material, they don't "produce"
+    const workstations = await this.prisma.workstation.findMany({
+      where: { tipe: { not: 'LOGISTICS' } },
+      orderBy: { id: 'asc' },
     });
 
-    const shippedCount = await this.prisma.antrianHeijunka.groupBy({
-        by: ['id_produk'],
-        where: { id_sesi: sessionId, status: 'SHIPPED' },
-        _count: { id_produk: true },
+    const completedCycles = await this.prisma.logSiklusKanban.findMany({
+      where: { id_sesi: sessionId, waktu_selesai: { not: null } },
+      select: { id_workstation: true, id_produk: true },
     });
 
-    const ngCount = await this.prisma.logProdukNG.groupBy({
-        by: ['id_produk'],
-        where: { id_sesi: sessionId },
-        _count: { id_produk: true },
+    const ngLogs = await this.prisma.logProdukNG.groupBy({
+      by: ['id_workstation'],
+      where: { id_sesi: sessionId },
+      _count: { id_workstation: true },
+    });
+    const ngMap = new Map(ngLogs.map(n => [n.id_workstation, n._count.id_workstation]));
+
+    const andonLogs = await this.prisma.logAndon.findMany({
+      where: { id_sesi: sessionId },
+      select: { id_workstation: true, waktu_lapor: true, waktu_selesai: true },
+    });
+    const downtimeMap = new Map<string, number>();
+    andonLogs.forEach(log => {
+      const end = log.waktu_selesai ?? sessionEnd;
+      const dur = Math.max((end.getTime() - log.waktu_lapor.getTime()) / 1000, 0);
+      downtimeMap.set(log.id_workstation, (downtimeMap.get(log.id_workstation) ?? 0) + dur);
     });
 
-    const productIds = [...new Set([...shippedCount.map(s => s.id_produk), ...ngCount.map(n => n.id_produk)])];
-    const products = await this.prisma.produk.findMany({
-        where: { id: { in: productIds } }
+    const oee_per_workstation = workstations.map(ws => {
+      const wsCycles = completedCycles.filter(c => c.id_workstation === ws.id);
+      const totalCount = wsCycles.length;
+      const ngCount = ngMap.get(ws.id) ?? 0;
+      const goodCount = Math.max(totalCount - ngCount, 0);
+
+      // Sum of ideal time per unit actually processed (handles mixed-model lines correctly)
+      const idealTimeSum = wsCycles.reduce(
+        (sum, c) => sum + (stdTimeMap.get(`${ws.id}-${c.id_produk}`) ?? 0),
+        0
+      );
+
+      const downtime = downtimeMap.get(ws.id) ?? 0;
+      const runTime = Math.max(plannedTimeSeconds - downtime, 0);
+
+      const availability = plannedTimeSeconds > 0 ? runTime / plannedTimeSeconds : 0;
+      const performance = runTime > 0 ? Math.min(idealTimeSum / runTime, 1) : 0;
+      const quality = totalCount > 0 ? goodCount / totalCount : 0;
+
+      return {
+        id_workstation: ws.id,
+        nama_ws: ws.nama_ws,
+        is_pacemaker: ws.id === pacemakerId,
+        downtime_sec: Math.round(downtime),
+        run_time_sec: Math.round(runTime),
+        total_count: totalCount,
+        good_count: goodCount,
+        ng_count: ngCount,
+        availability,
+        performance,
+        quality,
+        oee: availability * performance * quality,
+      };
     });
 
-    const productionResults = products.map(p => ({
-        id_produk: p.id,
-        nama_produk: p.nama_produk,
-        qty_shipped: shippedCount.find(s => s.id_produk === p.id)?._count.id_produk || 0,
-        qty_ng: ngCount.find(n => n.id_produk === p.id)?._count.id_produk || 0,
-    })).filter(r => r.qty_shipped > 0 || r.qty_ng > 0);
-
-    const totalAndon = await this.prisma.logAndon.count({ where: { id_sesi: sessionId } });
-    const totalLogistik = await this.prisma.logLogistik.count({ where: { id_sesi: sessionId } });
-
-    const durationMs = session.waktu_selesai ? session.waktu_selesai.getTime() - session.waktu_mulai.getTime() : 0;
+    const line = pacemakerId ? oee_per_workstation.find(m => m.id_workstation === pacemakerId) : null;
 
     return {
-        sessionId: session.id,
-        duration_minutes: Math.round(durationMs / 60000),
-        production_results: productionResults,
-        total_andon_alerts: totalAndon,
-        total_logistics_requests: totalLogistik,
+      sessionId,
+      planned_time_sec: Math.round(plannedTimeSeconds),
+      pacemaker_workstation: pacemakerId,
+      line_oee: line
+        ? { availability: line.availability, performance: line.performance, quality: line.quality, oee: line.oee }
+        : null, // null if no is_pacemaker was ever set for this scenario — flag this in UI, don't silently guess
+      oee_per_workstation,
     };
+  }
+
+  async getSessionSummary(sessionId: number) {
+    // 1. Fetch Session, Targets, and Workstations
+    const session = await this.prisma.sesiPraktikum.findUnique({
+      where: { id: sessionId },
+      include: {
+        target_produksi: { include: { produk: true } }
+      }
+    });
+
+    if (!session) throw new NotFoundException('Session not found');
+
+    const workstations = await this.prisma.workstation.findMany({
+      orderBy: { id: 'asc' }
+    });
+
+    // Calculate Duration
+    const endTime = session.waktu_selesai ? session.waktu_selesai.getTime() : Date.now();
+    const durationMinutes = Math.round((endTime - session.waktu_mulai.getTime()) / 60000);
+
+    // 2. Count Shipped Products (From LogSiklusKanban)
+    const shippedCounts = await this.prisma.logSiklusKanban.groupBy({
+      by: ['id_produk'],
+      where: { 
+        id_sesi: sessionId, 
+        status: 'SHIPPED' 
+      },
+      _count: { id_produk: true }
+    });
+
+    // 3. Count WIP Products (Everything on the floor that isn't shipped)
+    const wipCounts = await this.prisma.logSiklusKanban.groupBy({
+      by: ['id_produk'],
+      where: { 
+        id_sesi: sessionId, 
+        status: { not: 'SHIPPED' } 
+      },
+      _count: { id_produk: true }
+    });
+
+    // 4. Count NG Products (From LogProdukNG)
+    const ngCounts = await this.prisma.logProdukNG.groupBy({
+      by: ['id_produk'],
+      where: { id_sesi: sessionId },
+      _count: { id_produk: true }
+    });
+
+    // 5. Map Results against Targets
+    const production_results = session.target_produksi.map(target => {
+      const shippedMatch = shippedCounts.find(s => s.id_produk === target.id_produk);
+      const wipMatch = wipCounts.find(w => w.id_produk === target.id_produk);
+      const ngMatch = ngCounts.find(n => n.id_produk === target.id_produk);
+
+      return {
+        id_produk: target.id_produk,
+        nama_produk: target.produk.nama_produk,
+        target_qty: target.target_qty,
+        qty_shipped: shippedMatch ? shippedMatch._count.id_produk : 0,
+        qty_wip: wipMatch ? wipMatch._count.id_produk : 0,
+        qty_ng: ngMatch ? ngMatch._count.id_produk : 0,
+      };
+    });
+
+    // 6. Aggregate Workstation Health Metrics
+    const andonWsCounts = await this.prisma.logAndon.groupBy({
+      by: ['id_workstation'],
+      where: { id_sesi: sessionId },
+      _count: { id_workstation: true }
+    });
+
+    const logistikWsCounts = await this.prisma.logLogistik.groupBy({
+      by: ['id_workstation'],
+      where: { id_sesi: sessionId },
+      _count: { id_workstation: true }
+    });
+
+    const workstation_metrics = workstations.map(ws => {
+      const andonMatch = andonWsCounts.find(a => a.id_workstation === ws.id);
+      const logistikMatch = logistikWsCounts.find(l => l.id_workstation === ws.id);
+      
+      return {
+        id_workstation: ws.id,
+        nama_ws: ws.nama_ws,
+        total_andon: andonMatch ? andonMatch._count.id_workstation : 0,
+        total_logistik: logistikMatch ? logistikMatch._count.id_workstation : 0,
+      };
+    });
+
+    // 7. Count Total Factory Events
+    const total_andon_alerts = andonWsCounts.reduce((acc, curr) => acc + curr._count.id_workstation, 0);
+    const total_logistics_requests = logistikWsCounts.reduce((acc, curr) => acc + curr._count.id_workstation, 0);
+
+    return {
+      sessionId,
+      waktu_mulai: session.waktu_mulai,
+      waktu_selesai: session.waktu_selesai,
+      duration_minutes: durationMinutes,
+      production_results,
+      workstation_metrics, // Now perfectly matching the frontend requirement
+      total_andon_alerts,
+      total_logistics_requests
+    };
+  }
+
+  async getCycleLog(sessionId: number) {
+    const session = await this.prisma.sesiPraktikum.findUnique({ where: { id: sessionId } });
+    if (!session) throw new NotFoundException('Session not found');
+
+    const standardTimes = await this.prisma.skenarioWorkstationProduk.findMany({
+      where: { id_skenario: session.id_skenario },
+    });
+    const stdMap = new Map<string, number>();
+    standardTimes.forEach(st =>
+      stdMap.set(`${st.id_workstation}-${st.id_produk}`, st.total_waktu_standar_detik ?? 0)
+    );
+
+    const cycles = await this.prisma.logSiklusKanban.findMany({
+      where: { id_sesi: sessionId, waktu_selesai: { not: null } },
+      include: { produk: true, workstation: true },
+      orderBy: { waktu_mulai: 'asc' },
+    });
+
+    return cycles.map(c => {
+      const actualSec = c.waktu_selesai
+        ? Math.round((c.waktu_selesai.getTime() - c.waktu_mulai.getTime()) / 1000)
+        : null;
+      const key = `${c.id_workstation}-${c.id_produk}`;
+      const standardSec = stdMap.has(key) ? stdMap.get(key)! : null; // null = no standard configured, not zero
+      const varianceSec = actualSec != null && standardSec != null ? actualSec - standardSec : null;
+
+      return {
+        id: c.id,
+        id_workstation: c.id_workstation,
+        nama_ws: c.workstation.nama_ws,
+        kode_produk: c.kode_produk,
+        nama_produk: c.produk.nama_produk,
+        waktu_mulai: c.waktu_mulai,
+        waktu_selesai: c.waktu_selesai,
+        actual_sec: actualSec,
+        standard_sec: standardSec,
+        variance_sec: varianceSec, // positive = over standard, negative = under/faster
+      };
+    });
+  }
+
+  async generateExcelReport(sessionId: number, res: Response) {
+    const summary = await this.getSessionSummary(sessionId);
+    const oeeData = await this.getOEEMetrics(sessionId);
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'TPS Smart Lab System';
+    workbook.created = new Date();
+
+    // Standard OEE convention: 85%+ world-class, 60-85% typical, <60% needs attention
+    const bandFill = (v: number) => (v >= 0.85 ? 'FFC6EFCE' : v >= 0.6 ? 'FFFFEB9C' : 'FFFFC7CE');
+    const bandFont = (v: number) => (v >= 0.85 ? 'FF006100' : v >= 0.6 ? 'FF9C6500' : 'FF9C0006');
+
+    const applyOeeStyle = (cell: ExcelJS.Cell, value: number) => {
+      cell.numFmt = '0.0%';
+      cell.alignment = { horizontal: 'center' };
+      cell.font = { color: { argb: bandFont(value) }, bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bandFill(value) } };
+    };
+
+    // ---------------------------------------------------------
+    // SHEET 1: Ringkasan OEE (headline scorecard)
+    // ---------------------------------------------------------
+    const oeeSheet = workbook.addWorksheet('Ringkasan OEE');
+    oeeSheet.columns = [{ width: 32 }, { width: 20 }];
+
+    oeeSheet.mergeCells('A1:B1');
+    oeeSheet.getCell('A1').value = `Laporan OEE — Sesi #${sessionId}`;
+    oeeSheet.getCell('A1').font = { size: 16, bold: true };
+
+    oeeSheet.addRow([]);
+    oeeSheet.addRow(['Waktu Mulai', summary.waktu_mulai]);
+    oeeSheet.addRow(['Waktu Selesai', summary.waktu_selesai || 'Belum Selesai']);
+    oeeSheet.addRow(['Durasi (Menit)', summary.duration_minutes]);
+    oeeSheet.addRow([]);
+
+    if (oeeData.line_oee) {
+      const pacemakerWs = oeeData.oee_per_workstation.find(w => w.is_pacemaker);
+      oeeSheet.addRow(['Stasiun Pacemaker', `${pacemakerWs?.id_workstation} — ${pacemakerWs?.nama_ws}`]);
+      oeeSheet.addRow([]);
+
+      oeeSheet.addRow(['Metrik Line OEE (dari Pacemaker)', 'Nilai']).font = { bold: true };
+
+      const rows: [string, number][] = [
+        ['Availability', oeeData.line_oee.availability],
+        ['Performance', oeeData.line_oee.performance],
+        ['Quality', oeeData.line_oee.quality],
+        ['LINE OEE', oeeData.line_oee.oee],
+      ];
+      rows.forEach(([label, value], i) => {
+        const row = oeeSheet.addRow([label, value]);
+        if (i === rows.length - 1) row.font = { bold: true, size: 12 };
+        applyOeeStyle(row.getCell(2), value);
+      });
+    } else {
+      oeeSheet.addRow(['⚠ Tidak ada stasiun pacemaker diset untuk skenario ini.']);
+      oeeSheet.addRow(['Line OEE tidak dapat dihitung — lihat rincian per-stasiun di sheet berikutnya.']);
+    }
+
+    // ---------------------------------------------------------
+    // SHEET 2: OEE per Stasiun Kerja
+    // ---------------------------------------------------------
+    const wsSheet = workbook.addWorksheet('OEE per Stasiun');
+    wsSheet.columns = [
+      { header: 'ID', key: 'id', width: 10 },
+      { header: 'Nama Stasiun', key: 'nama', width: 25 },
+      { header: 'Pacemaker', key: 'pace', width: 12 },
+      { header: 'Total Unit', key: 'total', width: 12 },
+      { header: 'Unit Baik', key: 'good', width: 12 },
+      { header: 'Unit NG', key: 'ng', width: 10 },
+      { header: 'Downtime (dtk)', key: 'downtime', width: 15 },
+      { header: 'Availability', key: 'avail', width: 14 },
+      { header: 'Performance', key: 'perf', width: 14 },
+      { header: 'Quality', key: 'qual', width: 14 },
+      { header: 'OEE', key: 'oee', width: 14 },
+    ];
+    wsSheet.getRow(1).font = { bold: true };
+    wsSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } };
+
+    oeeData.oee_per_workstation.forEach(ws => {
+      const row = wsSheet.addRow({
+        id: ws.id_workstation, nama: ws.nama_ws, pace: ws.is_pacemaker ? '★ YA' : '',
+        total: ws.total_count, good: ws.good_count, ng: ws.ng_count, downtime: ws.downtime_sec,
+        avail: ws.availability, perf: ws.performance, qual: ws.quality, oee: ws.oee,
+      });
+      ['avail', 'perf', 'qual', 'oee'].forEach(key =>
+        applyOeeStyle(row.getCell(key), row.getCell(key).value as number)
+      );
+      if (ws.is_pacemaker) row.getCell('nama').font = { bold: true };
+    });
+
+    // ---------------------------------------------------------
+    // SHEET 3: Hasil Produksi (kept, now with capaian %)
+    // ---------------------------------------------------------
+    const prodSheet = workbook.addWorksheet('Hasil Produksi');
+    prodSheet.columns = [
+      { header: 'ID Produk', key: 'id', width: 10 },
+      { header: 'Nama Produk', key: 'nama', width: 30 },
+      { header: 'Target QTY', key: 'target', width: 15 },
+      { header: 'Shipped', key: 'shipped', width: 15 },
+      { header: 'WIP', key: 'wip', width: 12 },
+      { header: 'NG', key: 'ng', width: 12 },
+      { header: 'Capaian', key: 'capaian', width: 15 },
+    ];
+    prodSheet.getRow(1).font = { bold: true };
+
+    summary.production_results.forEach(prod => {
+      const capaian = prod.target_qty > 0 ? prod.qty_shipped / prod.target_qty : 0;
+      const row = prodSheet.addRow({
+        id: prod.id_produk, nama: prod.nama_produk, target: prod.target_qty,
+        shipped: prod.qty_shipped, wip: prod.qty_wip, ng: prod.qty_ng, capaian,
+      });
+      row.getCell('capaian').numFmt = '0.0%';
+    });
+
+    // ---------------------------------------------------------
+    // SHEET 4: Log Andon (raw traceability, for drill-down)
+    // ---------------------------------------------------------
+    const andonSheet = workbook.addWorksheet('Log Andon');
+    andonSheet.columns = [
+      { header: 'Stasiun', key: 'ws', width: 22 },
+      { header: 'Jenis Gangguan', key: 'jenis', width: 25 },
+      { header: 'Waktu Lapor', key: 'mulai', width: 22 },
+      { header: 'Waktu Selesai', key: 'selesai', width: 22 },
+      { header: 'Durasi (dtk)', key: 'durasi', width: 15 },
+    ];
+    andonSheet.getRow(1).font = { bold: true };
+
+    const rawAndon = await this.prisma.logAndon.findMany({
+      where: { id_sesi: sessionId },
+      include: { workstation: true },
+      orderBy: { waktu_lapor: 'asc' },
+    });
+    rawAndon.forEach(log => {
+      const end = log.waktu_selesai ?? new Date();
+      andonSheet.addRow({
+        ws: `${log.id_workstation} — ${log.workstation.nama_ws}`,
+        jenis: log.jenis_gangguan,
+        mulai: log.waktu_lapor,
+        selesai: log.waktu_selesai ?? 'Belum Selesai',
+        durasi: Math.round((end.getTime() - log.waktu_lapor.getTime()) / 1000),
+      });
+    });
+
+    // ---------------------------------------------------------
+    // SHEET 5: Log Siklus Detail (per-unit start/finish vs standard)
+    // ---------------------------------------------------------
+    const cycleLog = await this.getCycleLog(sessionId);
+    const cycleSheet = workbook.addWorksheet('Log Siklus Detail');
+    cycleSheet.columns = [
+      { header: 'Stasiun', key: 'ws', width: 22 },
+      { header: 'Produk', key: 'produk', width: 25 },
+      { header: 'Waktu Mulai', key: 'mulai', width: 22 },
+      { header: 'Waktu Selesai', key: 'selesai', width: 22 },
+      { header: 'Durasi Aktual (dtk)', key: 'aktual', width: 18 },
+      { header: 'Standar (dtk)', key: 'standar', width: 15 },
+      { header: 'Selisih (dtk)', key: 'selisih', width: 15 },
+      { header: 'Status', key: 'status', width: 15 },
+    ];
+    cycleSheet.getRow(1).font = { bold: true };
+    cycleSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } };
+
+    cycleLog.forEach(c => {
+      const status = c.standard_sec == null
+        ? 'Tanpa Standar'
+        : c.variance_sec! > 0 ? 'Lebih Lambat' : 'Sesuai/Lebih Cepat';
+
+      const row = cycleSheet.addRow({
+        ws: `${c.id_workstation} — ${c.nama_ws}`,
+        produk: `${c.kode_produk} — ${c.nama_produk}`,
+        mulai: c.waktu_mulai,
+        selesai: c.waktu_selesai,
+        aktual: c.actual_sec,
+        standar: c.standard_sec ?? '—',
+        selisih: c.variance_sec ?? '—',
+        status,
+      });
+
+      if (c.standard_sec != null) {
+        const over = c.variance_sec! > 0;
+        row.getCell('selisih').font = { bold: true, color: { argb: over ? 'FF9C0006' : 'FF006100' } };
+        row.getCell('status').font = { color: { argb: over ? 'FF9C0006' : 'FF006100' } };
+      }
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=laporan-sesi-${sessionId}.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
   }
 
   /**
