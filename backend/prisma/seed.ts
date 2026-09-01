@@ -64,8 +64,8 @@ async function main() {
   // 5. SCENARIO SETUP - Konfigurasi Game (Hanya Blueprint)
   const scenario = await prisma.skenarioGame.create({
     data: {
-      nama_skenario: 'Simulasi Lini Produksi Kendaraan (Pick Up, D-Cab, MPV)',
-      deskripsi: 'Skenario Kanban Pull System dengan variasi 3 produk di WS3.',
+      nama_skenario: 'Legacy Conf',
+      deskripsi: 'Skenario Kanban Pull System dengan variasi 3 produk di WS3, dan Langkah Terpisah.',
     },
   });
 
@@ -209,8 +209,8 @@ async function main() {
 
   const scenario2 = await prisma.skenarioGame.create({
     data: {
-      nama_skenario: 'Simulasi Lini Produksi (Langkah Kerja Terkonsolidasi)',
-      deskripsi: 'Skenario Kanban Pull System dengan langkah kerja yang digabung per stasiun.',
+      nama_skenario: 'Main Configuration',
+      deskripsi: 'Skenario Kanban Pull System dengan langkah kerja yang digabung.',
     },
   });
 
@@ -225,14 +225,14 @@ async function main() {
 
   await prisma.skenarioWorkstationProduk.createMany({
     data: [
-      { id_skenario: scenario2.id, id_workstation: 'WS1', id_produk: 99, safety_stock: 2, total_waktu_standar_detik: 45 },
-      { id_skenario: scenario2.id, id_workstation: 'WS2', id_produk: 99, safety_stock: 2, total_waktu_standar_detik: 30 },
-      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 1, safety_stock: 1, total_waktu_standar_detik: 40 },
-      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 2, safety_stock: 1, total_waktu_standar_detik: 55 },
-      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 3, safety_stock: 1, total_waktu_standar_detik: 55 },
-      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 1, safety_stock: 0, total_waktu_standar_detik: 25 },
-      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 2, safety_stock: 0, total_waktu_standar_detik: 30 },
-      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 3, safety_stock: 0, total_waktu_standar_detik: 30 },
+      { id_skenario: scenario2.id, id_workstation: 'WS1', id_produk: 99, safety_stock: 2, total_waktu_standar_detik: 90 },
+      { id_skenario: scenario2.id, id_workstation: 'WS2', id_produk: 99, safety_stock: 2, total_waktu_standar_detik: 90 },
+      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 1, safety_stock: 1, total_waktu_standar_detik: 90 },
+      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 2, safety_stock: 1, total_waktu_standar_detik: 90 },
+      { id_skenario: scenario2.id, id_workstation: 'WS3', id_produk: 3, safety_stock: 1, total_waktu_standar_detik: 90 },
+      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 1, safety_stock: 1, total_waktu_standar_detik: 90 },
+      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 2, safety_stock: 1, total_waktu_standar_detik: 90 },
+      { id_skenario: scenario2.id, id_workstation: 'WS4', id_produk: 3, safety_stock: 1, total_waktu_standar_detik: 90 },
     ]
   });
 
