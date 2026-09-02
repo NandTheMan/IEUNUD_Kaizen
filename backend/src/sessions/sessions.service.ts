@@ -1,12 +1,23 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { Response } from 'express';
+import { BuzzerService } from '../buzzer/buzzer.service';
 import { EventsGateway } from '../events/events.gateway';
 import { PrismaService } from '../prisma/prisma.service'; // Assuming you have a PrismaService
 
 @Injectable()
 export class SessionsService {
-  constructor(private prisma: PrismaService, private eventsGateway: EventsGateway) {}
+  constructor(
+    private prisma: PrismaService,
+    private eventsGateway: EventsGateway,
+    private buzzerService: BuzzerService,
+  ) {
+    // Register the auto-end callback: when the final buzzer fires and autoEndOnFinalBuzzer
+    // is true, the BuzzerService will call this to stop the active session.
+    this.buzzerService.registerOnFinalBuzzerCallback(async (sessionId) => {
+      await this.stopActive();
+    });
+  }
 
   async create(skenarioId: number) {
     // 1. Ensure the scenario exists
@@ -104,6 +115,9 @@ export class SessionsService {
     // Also broadcast an update so dashboards refresh
     this.eventsGateway.broadcastKanbanUpdate();
 
+    // Arm the buzzer at Buzzer 0 — ready state, waiting for PPIC to place the first order
+    this.buzzerService.initBuzzer(newSession.id);
+
     return {
         ...newSession,
         message: `Session ${newSession.id} created and initial safety stock populated.`
@@ -129,6 +143,9 @@ export class SessionsService {
       throw new NotFoundException('No active session to stop.');
     }
 
+    // Stop any running buzzer timers for this session before marking the session complete
+    this.buzzerService.stopBuzzer(activeSession.id);
+
     const updatedSession = await this.prisma.sesiPraktikum.update({
       where: { id: activeSession.id },
       data: {
@@ -142,6 +159,30 @@ export class SessionsService {
 
     return updatedSession;
   }
+
+  // ─── Buzzer delegation helpers (called by controller) ─────────────────────
+
+  getBuzzerState(sessionId: number) {
+    return this.buzzerService.getBuzzerState(sessionId);
+  }
+
+  startBuzzer(sessionId: number) {
+    return this.buzzerService.startBuzzer(sessionId);
+  }
+
+  pauseBuzzer(sessionId: number) {
+    return this.buzzerService.pauseBuzzer(sessionId);
+  }
+
+  resumeBuzzer(sessionId: number) {
+    return this.buzzerService.resumeBuzzer(sessionId);
+  }
+
+  resetBuzzer(sessionId: number) {
+    return this.buzzerService.resetBuzzer(sessionId);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
 
   async getKanbanBoardState(sessionId: number) {
     // 1. Get the session to find which scenario it's running
@@ -500,6 +541,13 @@ export class SessionsService {
     });
 
     this.eventsGateway.broadcastKanbanUpdate();
+
+    // Kick off Buzzer 1 when the PPIC places the first order (idempotent — ignored if already RUNNING)
+    const buzzerState = this.buzzerService.getBuzzerState(sessionId);
+    if (buzzerState.status === 'INITIALIZED') {
+      this.buzzerService.startBuzzer(sessionId);
+    }
+
     return result;
   }
 
@@ -566,11 +614,19 @@ export class SessionsService {
   }
 
   async reportAndon(sessionId: number, wsId: string, message?: string) {
+    if (wsId === 'WH') {
+      await this.prisma.workstation.upsert({
+        where: { id: 'WH' },
+        update: {},
+        create: { id: 'WH', nama_ws: 'Gudang (Warehouse)', tipe: 'LOGISTICS' },
+      });
+    }
+
     const andonLog = await this.prisma.logAndon.create({
       data: {
         id_sesi: sessionId,
         id_workstation: wsId,
-        jenis_gangguan: message || `Bantuan dibutuhkan di ${wsId}`,
+        jenis_gangguan: message || (wsId === 'WH' ? 'Bantuan / kendala di Gudang (Warehouse)' : `Bantuan dibutuhkan di ${wsId}`),
         waktu_lapor: new Date(),
       },
     });

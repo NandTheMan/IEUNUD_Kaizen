@@ -89,7 +89,7 @@ function AndonAlertsPanel() {
                   <div className="flex items-center justify-between">
                     <p className="flex items-center gap-1.5 font-bold text-destructive">
                       <AlertTriangle className="h-4 w-4" />
-                      WS: {alert.id_workstation}
+                      {alert.id_workstation === 'WH' ? 'Gudang (WH)' : `WS: ${alert.id_workstation}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(alert.waktu_lapor).toLocaleTimeString()}
@@ -104,7 +104,7 @@ function AndonAlertsPanel() {
               return (
                 <div key={alert.id} className="rounded-lg border bg-card p-3 shadow-sm" style={{ opacity: Math.max(1 - index * 0.2, 0.4) }}>
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold">WS: {alert.id_workstation}</p>
+                    <p className="text-sm font-semibold">{alert.id_workstation === 'WH' ? 'Gudang (WH)' : `WS: ${alert.id_workstation}`}</p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(alert.waktu_lapor).toLocaleTimeString()}
                     </p>

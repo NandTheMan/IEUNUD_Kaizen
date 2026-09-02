@@ -82,4 +82,25 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   broadcastLowStockUpdate() {
     this.server.emit('logistikUpdate');
   }
+
+  /**
+   * Broadcasts a buzzer state update to all connected clients.
+   */
+  broadcastBuzzerUpdate(data: any) {
+    this.server.emit('buzzer_updated', data);
+  }
+
+  /**
+   * Broadcasts a discrete buzzer tick event (e.g. Buzzer 1, 2, ..., 12 triggered).
+   */
+  broadcastBuzzerTick(data: any) {
+    this.server.emit('buzzer_tick', data);
+  }
+
+  /**
+   * Broadcasts when the final buzzer cycle has completed.
+   */
+  broadcastBuzzerCompleted(data: any) {
+    this.server.emit('buzzer_completed', data);
+  }
 }

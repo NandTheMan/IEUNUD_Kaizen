@@ -8,7 +8,7 @@ import { Frame, FrameDescription, FrameHeader, FramePanel, FrameTitle } from '@/
 import { useSession } from '@/components/session-provider';
 import { useSocket } from '@/components/socket-provider';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, CheckCircle2, Loader2, Truck } from 'lucide-react';
+import { AlertTriangle, Bell, CheckCircle2, Loader2, Truck } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 // Types for data from backend
@@ -46,6 +46,27 @@ export default function WarehousePage() {
   const [alerts, setAlerts] = useState<LowStockAlert[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isFulfilling, setIsFulfilling] = useState<number | null>(null);
+  const [isReportingAndon, setIsReportingAndon] = useState(false);
+
+  const handleAndonCall = useCallback(async () => {
+    if (!activeSessionId || isReportingAndon) return;
+    setIsReportingAndon(true);
+    try {
+      const res = await fetch(`${apiUrl}/sessions/${activeSessionId}/workstations/WH/report-andon`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'Bantuan dibutuhkan di Gudang (Warehouse)' }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Gagal memanggil Andon.');
+      }
+    } catch (error) {
+      console.error('Failed to report andon from warehouse:', error);
+    } finally {
+      setIsReportingAndon(false);
+    }
+  }, [activeSessionId, apiUrl, isReportingAndon]);
 
   const fetchStockData = useCallback(async () => {
     if (!activeSessionId) return;
@@ -129,7 +150,12 @@ export default function WarehousePage() {
           <FrameTitle className="font-mono text-3xl">Dasbor Gudang</FrameTitle>
           <FrameDescription className="text-xl font-light">Tinjauan Stok Material & Peringatan</FrameDescription>
         </div>
-        <GlobalStatusBar />
+        <div className="flex items-center gap-3">
+          <Button variant="destructive" onClick={handleAndonCall} disabled={isReportingAndon}>
+            <Bell className="mr-2 h-4 w-4" /> Panggil Bantuan
+          </Button>
+          <GlobalStatusBar />
+        </div>
       </FrameHeader>
 
       <main className="grid flex-1 grid-cols-3 gap-4 overflow-hidden bg-muted/40 p-4">
