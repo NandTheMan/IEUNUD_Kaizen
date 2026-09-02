@@ -6,6 +6,7 @@ import { Frame, FrameDescription, FrameHeader, FramePanel, FrameTitle } from '@/
 import { useSession } from '@/components/session-provider';
 import { useSocket } from '@/components/socket-provider';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { AlertCircle, Bell, Loader2 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -32,6 +33,16 @@ interface WorkstationInfo {
   id: string;
   nama_ws: string;
   tipe: string;
+}
+
+function getMaterialGridClass(count: number) {
+  if (count <= 1) return 'grid-cols-1 grid-rows-1';
+  if (count === 2) return 'grid-cols-2 grid-rows-1';
+  if (count === 3) return 'grid-cols-3 grid-rows-1';
+  if (count === 4) return 'grid-cols-2 grid-rows-2';
+  if (count <= 6) return 'grid-cols-3 grid-rows-2';
+  if (count <= 8) return 'grid-cols-4 grid-rows-2';
+  return 'grid-cols-3 grid-rows-3';
 }
 
 export default function WorkstationPage() {
@@ -341,7 +352,7 @@ export default function WorkstationPage() {
                 <p className="text-xl">{idleMessage}</p>
               ) : (
                 <ul className="space-y-2 text-xl leading-relaxed">
-                  {wsState.deskripsi_tugas
+                  {(wsState.deskripsi_tugas ?? '')
                     .split('\n')
                     .map((line) => line.trim())
                     .filter(Boolean)
@@ -387,9 +398,9 @@ export default function WorkstationPage() {
 
       {/* Bottom Row */}
       <div className="flex h-1/3 min-h-[320px] gap-4">
-        <Frame stacked className="flex w-1/3 flex-col">
-          <FrameHeader><FrameTitle>Bahan Saat Ini</FrameTitle></FrameHeader>
-          <FramePanel className="overflow-y-auto p-4">
+        <Frame stacked className="flex w-1/3 min-h-0 flex-col">
+          <FrameHeader className="shrink-0"><FrameTitle>Bahan Saat Ini</FrameTitle></FrameHeader>
+          <FramePanel className="flex flex-1 min-h-0 flex-col overflow-hidden p-2">
             {!stock ? (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Memuat stok...
@@ -399,25 +410,25 @@ export default function WorkstationPage() {
                 Tidak ada bahan yang dialokasikan untuk stasiun ini.
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
+              <div className={cn('grid h-full w-full gap-2 min-h-0', getMaterialGridClass(stock.length))}>
                 {stock.map((item) => (
-                  <MaterialCard key={item.id_bahan} nama={item.nama_bahan} stok={item.stok_sekarang} gambarUrl={item.gambar_url} />
+                  <MaterialCard key={item.id_bahan} nama={item.nama_bahan} stok={item.stok_sekarang} gambarUrl={item.gambar_url} fit="fill" className="h-full" />
                 ))}
               </div>
             )}
           </FramePanel>
         </Frame>
-        <Frame stacked className="flex w-1/3 flex-col">
-          <FrameHeader><FrameTitle>Bahan Digunakan</FrameTitle></FrameHeader>
-          <FramePanel className="overflow-y-auto p-2">
+        <Frame stacked className="flex w-1/3 min-h-0 flex-col">
+          <FrameHeader className="shrink-0"><FrameTitle>Bahan Digunakan</FrameTitle></FrameHeader>
+          <FramePanel className="flex flex-1 min-h-0 flex-col overflow-hidden p-2">
             {isIdle || !wsState.bom || wsState.bom.length === 0 ? (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                 Tidak ada bahan untuk langkah ini.
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
+              <div className={cn('grid h-full w-full gap-2 min-h-0', getMaterialGridClass(wsState.bom.length))}>
                 {wsState.bom.map((item) => (
-                  <MaterialCard key={item.id_bahan} nama={`${item.qty_dibutuhkan}x ${item.nama_bahan}`} gambarUrl={item.gambar_url} />
+                  <MaterialCard key={item.id_bahan} nama={`${item.qty_dibutuhkan}x ${item.nama_bahan}`} gambarUrl={item.gambar_url} fit="fill" className="h-full" />
                 ))}
               </div>
             )}
