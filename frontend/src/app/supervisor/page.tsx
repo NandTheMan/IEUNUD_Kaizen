@@ -2,6 +2,7 @@
 
 'use client';
 
+import { BuzzerTracker } from '@/components/buzzer-tracker';
 import { HeijunkaQueueItem, HeijunkaQueueList, ProductionKanban } from '@/components/examples/c-kanban-5';
 import { GlobalStatusBar } from '@/components/global-status-bar';
 import NegateWsPanel from '@/components/negate-ws-panel';
@@ -65,7 +66,7 @@ function AndonAlertsPanel() {
 
   return (
     <>
-      <Frame stacked className="col-span-1 flex h-full min-h-0 flex-col">
+      <Frame stacked className="row-span-3 col-span-1 flex h-full min-h-0 flex-col">
       <FrameHeader>
         <FrameTitle className="flex items-center gap-2">
           <Bell className="h-5 w-5" />
@@ -214,7 +215,15 @@ export default function SupervisorPage() {
       </Frame>
 
       {/* Andon Alerts Section */}
-      <AndonAlertsPanel />
+      <div className='grid grid-rows-4 gap-4'>
+          <AndonAlertsPanel />
+          <Frame stacked className="flex row-span-1 h-fill flex-col">
+            <FrameHeader className="shrink-0"><FrameTitle>Status Buzzer</FrameTitle></FrameHeader>
+            <FramePanel className="flex flex-1 min-h-0 flex-col overflow-hidden p-2">
+              <BuzzerTracker/>
+            </FramePanel>
+          </Frame>
+      </div>
 
       {/* Heijunka Dialog */}
       <Dialog open={isHeijunkaOpen} onOpenChange={setIsHeijunkaOpen}>

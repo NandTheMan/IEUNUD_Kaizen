@@ -2,6 +2,7 @@
 
 'use client';
 
+import { BuzzerTracker } from '@/components/buzzer-tracker';
 import { GlobalStatusBar } from '@/components/global-status-bar';
 import { MaterialCard } from '@/components/material-card';
 import { Frame, FrameDescription, FrameHeader, FramePanel, FrameTitle } from '@/components/reui/frame';
@@ -181,42 +182,50 @@ export default function WarehousePage() {
         </div>
 
         {/* Right Section: Low Stock Alerts */}
-        <Frame stacked className="col-span-1 flex h-full min-h-0 flex-col">
-          <FrameHeader><FrameTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-500" />Peringatan Stok Rendah</FrameTitle><FrameDescription>Material yang berada di bawah ambang batas aman.</FrameDescription></FrameHeader>
-          <FramePanel className="flex flex-col gap-3 overflow-y-auto p-3">
-            {isLoading ? (
-              <div className="flex h-full w-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-            ) : alerts.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground"><CheckCircle2 className="h-8 w-8" /><p className="mt-2 font-semibold">Stok Aman</p><p className="text-xs">Tidak ada permintaan pengisian ulang.</p></div>
-            ) : (
-              alerts.map((alert, index) => {
-                const isActionable = index === 0;
-                const isBeingFulfilled = isFulfilling === alert.id;
+        <div className='grid grid-rows-4 min-h-full gap-4 col-span-1'>
+          <Frame stacked className="row-span-3 flex h-fill flex-col">
+            <FrameHeader><FrameTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-500" />Peringatan Stok Rendah</FrameTitle><FrameDescription>Material yang berada di bawah ambang batas aman.</FrameDescription></FrameHeader>
+            <FramePanel className="flex flex-col gap-3 overflow-y-auto p-3">
+              {isLoading ? (
+                <div className="flex h-full w-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+              ) : alerts.length === 0 ? (
+                <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground"><CheckCircle2 className="h-8 w-8" /><p className="mt-2 font-semibold">Stok Aman</p><p className="text-xs">Tidak ada permintaan pengisian ulang.</p></div>
+              ) : (
+                alerts.map((alert, index) => {
+                  const isActionable = index === 0;
+                  const isBeingFulfilled = isFulfilling === alert.id;
 
-                if (isActionable) {
+                  if (isActionable) {
+                    return (
+                      <div key={alert.id} className="rounded-lg border-2 border-amber-500/70 bg-amber-500/10 p-4 shadow-sm transition-all">
+                        <div className="flex items-center justify-between"><p className="flex items-center gap-1.5 font-bold text-amber-600"><AlertTriangle className="h-4 w-4" />WS: {alert.id_workstation}</p><p className="text-xs text-muted-foreground">{new Date(alert.waktu_diminta).toLocaleTimeString()}</p></div>
+                        <p className="mt-1 text-sm font-semibold">{alert.bahan.nama_bahan}</p>
+                        <p className="font-mono text-xs text-muted-foreground">Qty Diminta: {alert.qty_diminta}</p>
+                        <Button className="mt-4 w-full" size="sm" onClick={() => handleFulfillRequest(alert.id)} disabled={isBeingFulfilled}>
+                          {isBeingFulfilled ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
+                          Kirim Material
+                        </Button>
+                      </div>
+                    );
+                  }
                   return (
-                    <div key={alert.id} className="rounded-lg border-2 border-amber-500/70 bg-amber-500/10 p-4 shadow-sm transition-all">
-                      <div className="flex items-center justify-between"><p className="flex items-center gap-1.5 font-bold text-amber-600"><AlertTriangle className="h-4 w-4" />WS: {alert.id_workstation}</p><p className="text-xs text-muted-foreground">{new Date(alert.waktu_diminta).toLocaleTimeString()}</p></div>
-                      <p className="mt-1 text-sm font-semibold">{alert.bahan.nama_bahan}</p>
-                      <p className="font-mono text-xs text-muted-foreground">Qty Diminta: {alert.qty_diminta}</p>
-                      <Button className="mt-4 w-full" size="sm" onClick={() => handleFulfillRequest(alert.id)} disabled={isBeingFulfilled}>
-                        {isBeingFulfilled ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
-                        Kirim Material
-                      </Button>
+                    <div key={alert.id} className="rounded-lg border bg-card p-3 shadow-sm" style={{ opacity: Math.max(1 - index * 0.2, 0.4) }}>
+                      <div className="flex items-center justify-between"><p className="text-sm font-semibold">WS: {alert.id_workstation}</p><p className="text-xs text-muted-foreground">{new Date(alert.waktu_diminta).toLocaleTimeString()}</p></div>
+                      <p className="mt-1 truncate text-sm text-muted-foreground">{alert.bahan.nama_bahan}</p>
+                      <p className="font-mono text-xs text-muted-foreground">Qty: {alert.qty_diminta}</p>
                     </div>
                   );
-                }
-                return (
-                  <div key={alert.id} className="rounded-lg border bg-card p-3 shadow-sm" style={{ opacity: Math.max(1 - index * 0.2, 0.4) }}>
-                    <div className="flex items-center justify-between"><p className="text-sm font-semibold">WS: {alert.id_workstation}</p><p className="text-xs text-muted-foreground">{new Date(alert.waktu_diminta).toLocaleTimeString()}</p></div>
-                    <p className="mt-1 truncate text-sm text-muted-foreground">{alert.bahan.nama_bahan}</p>
-                    <p className="font-mono text-xs text-muted-foreground">Qty: {alert.qty_diminta}</p>
-                  </div>
-                );
-              })
-            )}
-          </FramePanel>
-        </Frame>
+                })
+              )}
+            </FramePanel>
+          </Frame>
+          <Frame stacked className="flex row-span-1 h-fill flex-col">
+            <FrameHeader className="shrink-0"><FrameTitle>Status Buzzer</FrameTitle></FrameHeader>
+            <FramePanel className="flex flex-1 min-h-0 flex-col overflow-hidden p-2">
+              <BuzzerTracker/>
+            </FramePanel>
+          </Frame>
+        </div>
       </main>
     </div>
   );
