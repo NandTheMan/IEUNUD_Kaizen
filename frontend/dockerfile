@@ -5,7 +5,7 @@ FROM node:20-alpine
 WORKDIR /usr/src/app
 
 # Install pnpm globally inside the container
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9
 
 # Copy package.json and pnpm-lock.yaml first
 COPY package.json pnpm-lock.yaml ./
@@ -22,6 +22,8 @@ COPY . .
 # This is intentionally NOT a specific IP address.
 ARG NEXT_PUBLIC_API_URL=/api
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
+RUN rm -f pnpm-workspace.yaml
 
 # Build the Next.js application into static HTML/CSS/JS chunks
 RUN pnpm run build

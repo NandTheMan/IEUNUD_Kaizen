@@ -5,7 +5,7 @@ FROM node:20-alpine
 WORKDIR /usr/src/app
 
 # Install pnpm globally inside the container
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9
 
 # Copy package.json and pnpm-lock.yaml first (for efficient caching)
 COPY package.json pnpm-lock.yaml ./
@@ -18,6 +18,8 @@ COPY . .
 
 # Generate Prisma Client (CRUCIAL: Must be done before the build step)
 RUN npx prisma generate
+
+RUN rm -f pnpm-workspace.yaml
 
 # Build the NestJS application (Using the fast SWC compiler)
 RUN pnpm run build
