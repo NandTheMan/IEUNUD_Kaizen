@@ -2,6 +2,7 @@
 
 'use client';
 
+import { BuzzerTracker } from '@/components/buzzer-tracker';
 import { HeijunkaQueueItem, HeijunkaQueueList, ProductionKanban } from '@/components/examples/c-kanban-5';
 import { GlobalStatusBar } from '@/components/global-status-bar';
 import NegateWsPanel from '@/components/negate-ws-panel';
@@ -65,7 +66,7 @@ function AndonAlertsPanel() {
 
   return (
     <>
-      <Frame stacked className="col-span-1 flex h-full min-h-0 flex-col">
+      <Frame stacked className="row-span-3 col-span-1 flex h-full min-h-0 flex-col">
       <FrameHeader>
         <FrameTitle className="flex items-center gap-2">
           <Bell className="h-5 w-5" />
@@ -89,7 +90,7 @@ function AndonAlertsPanel() {
                   <div className="flex items-center justify-between">
                     <p className="flex items-center gap-1.5 font-bold text-destructive">
                       <AlertTriangle className="h-4 w-4" />
-                      WS: {alert.id_workstation}
+                      {alert.id_workstation === 'WH' ? 'Gudang (WH)' : `WS: ${alert.id_workstation}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(alert.waktu_lapor).toLocaleTimeString()}
@@ -104,7 +105,7 @@ function AndonAlertsPanel() {
               return (
                 <div key={alert.id} className="rounded-lg border bg-card p-3 shadow-sm" style={{ opacity: Math.max(1 - index * 0.2, 0.4) }}>
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold">WS: {alert.id_workstation}</p>
+                    <p className="text-sm font-semibold">{alert.id_workstation === 'WH' ? 'Gudang (WH)' : `WS: ${alert.id_workstation}`}</p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(alert.waktu_lapor).toLocaleTimeString()}
                     </p>
@@ -214,7 +215,15 @@ export default function SupervisorPage() {
       </Frame>
 
       {/* Andon Alerts Section */}
-      <AndonAlertsPanel />
+      <div className='grid grid-rows-4 gap-4'>
+          <AndonAlertsPanel />
+          <Frame stacked className="flex row-span-1 h-fill flex-col">
+            <FrameHeader className="shrink-0"><FrameTitle>Status Buzzer</FrameTitle></FrameHeader>
+            <FramePanel className="flex flex-1 min-h-0 flex-col overflow-hidden p-2">
+              <BuzzerTracker/>
+            </FramePanel>
+          </Frame>
+      </div>
 
       {/* Heijunka Dialog */}
       <Dialog open={isHeijunkaOpen} onOpenChange={setIsHeijunkaOpen}>

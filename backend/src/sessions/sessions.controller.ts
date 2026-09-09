@@ -1,4 +1,5 @@
 import { Body, Controller, Get, NotFoundException, Param, ParseIntPipe, Post, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { DecrementStockDto } from './dto/decrement-stock.dto';
 import { ReportAndonDto } from './dto/report-andon.dto';
@@ -6,7 +7,6 @@ import { ReportNgDto } from './dto/report-ng.dto';
 import { ShipOrderDto } from './dto/ship-order.dto';
 import { SubmitOrderDto } from './dto/submit-order.dto';
 import { SessionsService } from './sessions.service';
-import { Response } from 'express';
 
 @Controller('sessions')
 export class SessionsController {
@@ -178,5 +178,52 @@ export class SessionsController {
       @Param('logId', ParseIntPipe) logId: number,
     ) {
       return this.sessionsService.fulfillLogisticsRequest(sessionId, logId);
+    }
+
+    // ─── Buzzer Endpoints ────────────────────────────────────────────────────────
+
+    /**
+     * GET /sessions/:id/buzzer
+     * Returns the current buzzer state for a session.
+     */
+    @Get(':id/buzzer')
+    getBuzzerState(@Param('id', ParseIntPipe) id: number) {
+        return this.sessionsService.getBuzzerState(id);
+    }
+
+    /**
+     * POST /sessions/:id/buzzer/start
+     * Manually starts Buzzer 1 for a session (normally auto-triggered by submitOrder).
+     */
+    @Post(':id/buzzer/start')
+    startBuzzer(@Param('id', ParseIntPipe) id: number) {
+        return this.sessionsService.startBuzzer(id);
+    }
+
+    /**
+     * POST /sessions/:id/buzzer/pause
+     * Pauses the active buzzer timer.
+     */
+    @Post(':id/buzzer/pause')
+    pauseBuzzer(@Param('id', ParseIntPipe) id: number) {
+        return this.sessionsService.pauseBuzzer(id);
+    }
+
+    /**
+     * POST /sessions/:id/buzzer/resume
+     * Resumes a paused buzzer timer.
+     */
+    @Post(':id/buzzer/resume')
+    resumeBuzzer(@Param('id', ParseIntPipe) id: number) {
+        return this.sessionsService.resumeBuzzer(id);
+    }
+
+    /**
+     * POST /sessions/:id/buzzer/reset
+     * Resets the buzzer back to Buzzer 0 (Initialized).
+     */
+    @Post(':id/buzzer/reset')
+    resetBuzzer(@Param('id', ParseIntPipe) id: number) {
+        return this.sessionsService.resetBuzzer(id);
     }
 }

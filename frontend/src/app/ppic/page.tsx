@@ -1,5 +1,6 @@
 'use client';
 
+import { BuzzerTracker } from '@/components/buzzer-tracker';
 import { HeijunkaQueueItem, HeijunkaQueueList, ProductionKanban } from '@/components/examples/c-kanban-5';
 import { GlobalStatusBar } from '@/components/global-status-bar';
 import { OrderingPanel } from '@/components/ordering-panel';
@@ -146,7 +147,16 @@ export default function PpicPage() {
           {!activeSessionId ? (
             <SessionInitializer onSessionStart={setActiveSessionId} />
           ) : (
-            <OrderingPanel sessionId={activeSessionId} className="h-full w-full" />
+            <>
+              <OrderingPanel sessionId={activeSessionId} className="h-full w-full" />
+              <Frame stacked className="flex row-span-1 h-fill w-full flex-col">
+                <FrameHeader className="shrink-0"><FrameTitle>Status Buzzer</FrameTitle></FrameHeader>
+                <FramePanel className="flex flex-1 min-h-32 flex-col overflow-hidden p-2">
+                  <BuzzerTracker/>
+                </FramePanel>
+              </Frame>
+            </>
+            
           )}
         </div>
       </main>

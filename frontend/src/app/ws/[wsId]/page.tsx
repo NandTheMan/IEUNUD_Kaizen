@@ -1,11 +1,13 @@
 'use client';
 
+import { BuzzerTracker } from '@/components/buzzer-tracker';
 import { GlobalStatusBar } from '@/components/global-status-bar';
 import { MaterialCard } from '@/components/material-card';
 import { Frame, FrameDescription, FrameHeader, FramePanel, FrameTitle } from '@/components/reui/frame';
 import { useSession } from '@/components/session-provider';
 import { useSocket } from '@/components/socket-provider';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { AlertCircle, Bell, Loader2 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -32,6 +34,16 @@ interface WorkstationInfo {
   id: string;
   nama_ws: string;
   tipe: string;
+}
+
+function getMaterialGridClass(count: number) {
+  if (count <= 1) return 'grid-cols-1 grid-rows-1';
+  if (count === 2) return 'grid-cols-2 grid-rows-1';
+  if (count === 3) return 'grid-cols-3 grid-rows-1';
+  if (count === 4) return 'grid-cols-2 grid-rows-2';
+  if (count <= 6) return 'grid-cols-3 grid-rows-2';
+  if (count <= 8) return 'grid-cols-4 grid-rows-2';
+  return 'grid-cols-3 grid-rows-3';
 }
 
 export default function WorkstationPage() {
@@ -66,20 +78,21 @@ export default function WorkstationPage() {
     if (!res.ok) return;
     const data = await res.json();
 
-    if (data.status === 'WIP') {
-      setWsState({
-        action: 'NEXT',
-        kode_produk: data.kode_produk,
-        nama_produk: data.nama_produk,
-        langkah_sekarang: data.langkah_sekarang,
-        total_langkah: data.total_langkah,
-        deskripsi_tugas: data.deskripsi_tugas,
-        standard_time_detik: data.waktu_standar_detik,
-        gambar_utama_url: data.gambar_utama_url,
-        bom: data.bom ?? [],
-        message: data.message ?? '',
-      });
-    } else {
+      if (data.status === 'WIP') {
+        setNotification(null);
+        setWsState({
+          action: 'NEXT',
+          kode_produk: data.kode_produk,
+          nama_produk: data.nama_produk,
+          langkah_sekarang: data.langkah_sekarang,
+          total_langkah: data.total_langkah,
+          deskripsi_tugas: data.deskripsi_tugas,
+          standard_time_detik: data.waktu_standar_detik,
+          gambar_utama_url: data.gambar_utama_url,
+          bom: data.bom ?? [],
+          message: data.message ?? '',
+        });
+      } else {
       setWsState(null);
     }
   } catch (err) {
@@ -121,14 +134,7 @@ export default function WorkstationPage() {
     }
   }, [activeSessionId, wsId, apiUrl]);
 
-  useEffect(() => {
-    if (activeSessionId && socket) {
-      fetchBoardData();
-      fetchStock();
-    }
-  }, [activeSessionId, socket, fetchBoardData, fetchStock]);
-
-  // WebSocket room and notification handling
+  // Initial data fetching on session / socket connect
   useEffect(() => {
     if (activeSessionId && socket) {
       fetchBoardData();
@@ -138,13 +144,23 @@ export default function WorkstationPage() {
     }
   }, [activeSessionId, socket, fetchBoardData, fetchStock, fetchWorkstationState, fetchPullSignalStatus]);
 
+  // WebSocket room and real-time event handling
   useEffect(() => {
     if (!socket || !wsId) return;
 
     socket.emit('join_workstation_room', wsId);
     const handleNotification = (data: { title: string; message: string }) => setNotification(data);
-    const handleKanbanUpdate = () => { fetchBoardData(); fetchStock(); };
-    const handleStateUpdate = () => fetchWorkstationState(); // 👈 replaces reload
+    const handleKanbanUpdate = () => {
+      fetchBoardData();
+      fetchStock();
+      fetchPullSignalStatus();
+    };
+    const handleStateUpdate = () => {
+      setNotification(null); // Dismiss notification when state updates via external input (ESP32)
+      fetchWorkstationState();
+      fetchPullSignalStatus();
+      fetchStock();
+    };
 
     socket.on('WORKSTATION_NOTIFICATION', handleNotification);
     socket.on('kanban_updated', handleKanbanUpdate);
@@ -156,7 +172,7 @@ export default function WorkstationPage() {
       socket.off('kanban_updated', handleKanbanUpdate);
       socket.off('workstation_state_updated', handleStateUpdate);
     };
-  }, [socket, wsId, fetchBoardData, fetchStock, fetchWorkstationState]);
+  }, [socket, wsId, fetchBoardData, fetchStock, fetchWorkstationState, fetchPullSignalStatus]);
 
   const handleToggle = useCallback(async () => {
     if (!activeSessionId || isLoading) return;
@@ -309,8 +325,14 @@ export default function WorkstationPage() {
     <div className="relative flex h-full flex-1 flex-col gap-4 p-4">
       {/* Notification Overlay */}
       {notification && !isLoading && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-          <div className="flex max-w-md flex-col items-center gap-4 rounded-lg border bg-card p-8 text-center shadow-2xl">
+        <div
+          onClick={() => setNotification(null)}
+          className="absolute inset-0 z-50 flex cursor-pointer items-center justify-center bg-background/80 backdrop-blur-sm"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="flex max-w-md cursor-default flex-col items-center gap-4 rounded-lg border bg-card p-8 text-center shadow-2xl"
+          >
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary">
               <Bell className="h-8 w-8 text-primary-foreground" />
             </div>
@@ -318,7 +340,17 @@ export default function WorkstationPage() {
               <h2 className="text-2xl font-bold text-primary">{notification.title}</h2>
               <p className="text-muted-foreground">{notification.message}</p>
             </div>
-            <p className="mt-4 animate-pulse text-lg font-semibold">Tekan Spasi untuk Memulai</p>
+            <p className="mt-4 animate-pulse text-lg font-semibold">
+              Tekan Spasi atau Tombol Fisik untuk Memulai
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => setNotification(null)}
+            >
+              Tutup Notifikasi
+            </Button>
           </div>
         </div>
       )}
@@ -341,7 +373,7 @@ export default function WorkstationPage() {
                 <p className="text-xl">{idleMessage}</p>
               ) : (
                 <ul className="space-y-2 text-xl leading-relaxed">
-                  {wsState.deskripsi_tugas
+                  {(wsState.deskripsi_tugas ?? '')
                     .split('\n')
                     .map((line) => line.trim())
                     .filter(Boolean)
@@ -387,9 +419,9 @@ export default function WorkstationPage() {
 
       {/* Bottom Row */}
       <div className="flex h-1/3 min-h-[320px] gap-4">
-        <Frame stacked className="flex w-1/3 flex-col">
-          <FrameHeader><FrameTitle>Bahan Saat Ini</FrameTitle></FrameHeader>
-          <FramePanel className="overflow-y-auto p-4">
+        <Frame stacked className="flex w-1/3 min-h-0 flex-col">
+          <FrameHeader className="shrink-0"><FrameTitle>Bahan Saat Ini</FrameTitle></FrameHeader>
+          <FramePanel className="flex flex-1 min-h-0 flex-col overflow-hidden p-2">
             {!stock ? (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Memuat stok...
@@ -399,28 +431,29 @@ export default function WorkstationPage() {
                 Tidak ada bahan yang dialokasikan untuk stasiun ini.
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
+              <div className={cn('grid h-full w-full gap-2 min-h-0', getMaterialGridClass(stock.length))}>
                 {stock.map((item) => (
-                  <MaterialCard key={item.id_bahan} nama={item.nama_bahan} stok={item.stok_sekarang} gambarUrl={item.gambar_url} />
+                  <MaterialCard key={item.id_bahan} nama={item.nama_bahan} stok={item.stok_sekarang} gambarUrl={item.gambar_url} fit="fill" className="h-full" />
                 ))}
               </div>
             )}
           </FramePanel>
         </Frame>
-        <Frame stacked className="flex w-1/3 flex-col">
-          <FrameHeader><FrameTitle>Bahan Digunakan</FrameTitle></FrameHeader>
-          <FramePanel className="overflow-y-auto p-2">
-            {isIdle || !wsState.bom || wsState.bom.length === 0 ? (
+        <Frame stacked className="flex w-1/3 min-h-0 flex-col">
+          <FrameHeader className="shrink-0"><FrameTitle>Status Buzzer</FrameTitle></FrameHeader>
+          <FramePanel className="flex flex-1 min-h-0 flex-col overflow-hidden p-2">
+            <BuzzerTracker/>
+            {/* {isIdle || !wsState.bom || wsState.bom.length === 0 ? (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                 Tidak ada bahan untuk langkah ini.
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
+              <div className={cn('grid h-full w-full gap-2 min-h-0', getMaterialGridClass(wsState.bom.length))}>
                 {wsState.bom.map((item) => (
-                  <MaterialCard key={item.id_bahan} nama={`${item.qty_dibutuhkan}x ${item.nama_bahan}`} gambarUrl={item.gambar_url} />
+                  <MaterialCard key={item.id_bahan} nama={`${item.qty_dibutuhkan}x ${item.nama_bahan}`} gambarUrl={item.gambar_url} fit="fill" className="h-full" />
                 ))}
               </div>
-            )}
+            )} */}
           </FramePanel>
         </Frame>
         <Frame stacked className="flex w-1/3 flex-col">

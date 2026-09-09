@@ -58,6 +58,7 @@ async function main() {
       { id: 'WS2', nama_ws: 'Assy Wheel', tipe: 'ASSEMBLY' },
       { id: 'WS3', nama_ws: 'Final Assy', tipe: 'ASSEMBLY' },
       { id: 'WS4', nama_ws: 'Quality Inspection', tipe: 'INSPECTION' },
+      { id: 'WH',  nama_ws: 'Gudang (Warehouse)', tipe: 'LOGISTICS' }, // 👈 Added
     ],
   });
 
@@ -220,6 +221,7 @@ async function main() {
       { id_skenario: scenario2.id, id_workstation: 'WS2', is_pacemaker: false },
       { id_skenario: scenario2.id, id_workstation: 'WS3', is_pacemaker: false },
       { id_skenario: scenario2.id, id_workstation: 'WS4', is_pacemaker: false },
+      { id_skenario: scenario2.id, id_workstation: 'WH', is_pacemaker: false },
     ],
   });
 
